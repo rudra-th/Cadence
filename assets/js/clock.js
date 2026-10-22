@@ -1,35 +1,33 @@
 /**
- * Cadence — the application controller.
+ * Cadence — the clock.
  *
- * Two halves, one state:
- *   • the CLOCK  — a stopwatch and a timer that know how to run a plan
- *   • the PLAN   — a day painted on a grid, which the clock then follows
+ * The clock is one of two pages: this one runs the timer, the plan page
+ * writes the day down. They share one store and one runtime, so a run that
+ * starts on the plan page keeps counting when the clock opens.
  *
  * Timing is derived from wall-clock timestamps, never from tick counts, so the
  * clock stays exact when the tab is throttled, backgrounded or the screen is
- * off.
+ * off — and the time is written to disk while it runs, so nothing is lost
+ * when the app is closed without the timer being stopped.
  */
 
 import { sound } from './audio.js';
 import {
   DEFAULTS, load, save, saveNow, clearStore,
-  addSession, removeSession, recentSessions, computeStats,
-  isoDateInput, uid, getPlan, setPlan,
+  addSession, updateSession, removeSession, recentSessions, computeStats,
+  closeOrphanSessions, isoDateInput, uid, getPlan, setPlan,
+  savePlanForTimer, removeSavedPlan,
   sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities,
 } from './store.js';
-import { extractPdfLayout } from './pdf.js';
-import { parseTestOnGo } from './timetable.js';
+import { importTimetable as importTimetableFile, importErrorMessage } from './timetable-import.js';
 import {
-  blockAt, nextBlock, planSummary, blocksFromSessions,
+  blockAt, nextBlock, planSummary, dayProgress,
 } from './plan.js';
 import {
-  mountPlanner, renderPlanner, refreshPlanner, plannerDate, setPlannerDate,
-  importIntoPlan,
-} from './planner.js';
-import {
-  clamp, pad2, dateKey, shiftKey, startOfDayKey, minutesOfDay, clockLabel,
+  clamp, pad2, dateKey, shiftKey, startOfDayKey, minutesOfDay, clockLabel, labelDate,
 } from './util.js';
-import { applyTheme, readTheme } from './theme.js';
+import { applyTheme } from './theme.js';
+import { readRuntime, writeRuntime, clearRuntime } from './runtime.js';
 
 /* ═══════════════════════════════════════════════════════════
    Constants
@@ -43,8 +41,6 @@ const RING_CY = 130;
 const APP_VERSION = '1.0.0';    // keep in step with sw.js VERSION
 
 const QUICK_DURATIONS = [5, 15, 25, 30, 45, 50, 60, 90];
-
-const RUNTIME_KEY = 'cadence.runtime.v1';
 
 /* ═══════════════════════════════════════════════════════════
    DOM
@@ -73,11 +69,7 @@ const el = {
   resetBtn: $('resetBtn'),
   todayLine: $('todayLine'),
   planLine: $('planLine'),
-
-  viewSwitch: $('viewSwitch'),
-  viewButtons: [...document.querySelectorAll('.viewswitch__btn')],
-  clockView: $('viewClock'),
-  planView: $('viewPlan'),
+  nextLine: $('nextLine'),
 
   settingsBtn: $('settingsBtn'),
   settingsPanel: $('settingsPanel'),
@@ -123,33 +115,10 @@ const el = {
   ttCount: $('ttCount'),
   ttClear: $('ttClear'),
   ttActivities: $('ttActivities'),
-
-  // plan — workspace
-  planTitle: $('planTitle'),
-  planSub: $('planSub'),
-  planPrev: $('planPrev'),
-  planNext: $('planNext'),
-  planToday: $('planToday'),
-  planWeek: $('planWeek'),
-  planGrid: $('planGrid'),
-  planTracks: [...document.querySelectorAll('.grid__track')],
-  planGutters: [...document.querySelectorAll('.grid__gutter')],
-  planBlocks: $('planBlocks'),
-  planTasks: $('planTasks'),
-  planTaskCount: $('planTaskCount'),
-  planTaskForm: $('planTaskForm'),
-  planTaskInput: $('planTaskInput'),
-  planTaskStage: $('planTaskStage'),
-  planPicker: $('planPicker'),
-  planAddActivity: $('planAddActivity'),
-  planClear: $('planClear'),
-  planCopy: $('planCopy'),
-  planImport: $('planImport'),
-  planImportFile: $('planImportFile'),
-
-  copyDialog: $('copyDialog'),
-  copyClose: $('copyClose'),
-  copyOptions: $('copyOptions'),
+  ttContinue: $('ttContinue'),
+  ttSaved: $('ttSaved'),
+  ttSavedList: $('ttSavedList'),
+  ttSavedCount: $('ttSavedCount'),
 
   toast: $('toast'),
 };
@@ -187,6 +156,11 @@ let toastTimer = null;
 let lastFocusTarget = null;
 let planTimerId = null;
 let drawerHideTimer = null;
+
+/* The session row that is growing while the timer runs. It is written to
+   disk as it goes, so closing the app never loses the time. */
+let liveSessionId = '';
+let lastLiveSync = 0;
 
 /* ═══════════════════════════════════════════════════════════
    Small helpers
@@ -272,27 +246,82 @@ function elapsedMs() {
   return T.accumulated + (T.status === 'running' ? Math.max(0, Date.now() - T.startedAt) : 0);
 }
 
-function persistRuntime() {
-  try {
-    localStorage.setItem(RUNTIME_KEY, JSON.stringify({
-      mode: T.mode, status: T.status, kind: T.kind,
-      startedAt: T.startedAt, accumulated: T.accumulated, target: T.target,
-      subject: T.subject, sessionId: T.sessionId,
-    }));
-  } catch { /* private mode */ }
+/** The moment the current run really began. */
+function runStart() {
+  if (T.status === 'running' && T.startedAt) return T.startedAt;
+  return Date.now() - T.accumulated;
 }
 
-function clearRuntime() {
-  try { localStorage.removeItem(RUNTIME_KEY); } catch { /* ignore */ }
+function persistRuntime() {
+  writeRuntime({
+    mode: T.mode, status: T.status, kind: T.kind,
+    startedAt: T.startedAt, accumulated: T.accumulated, target: T.target,
+    subject: T.subject, sessionId: T.sessionId,
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   The live session
+   ═══════════════════════════════════════════════════════════
+
+   A session is written to the store the moment the timer starts, and its
+   duration grows while the timer runs. Nothing is lost if the app is
+   closed, reloaded or killed — the time is already on the disk.
+*/
+
+/** Find the session row that belongs to this run, if it is still there. */
+function adoptLiveSession(startedAt) {
+  const found = state.sessions.find(s => s.live && s.start === startedAt);
+  if (!found) return false;
+  liveSessionId = found.id;
+  return true;
+}
+
+/** Open a session for a run that is just starting. */
+function beginLiveSession() {
+  if (T.kind === 'break') return;            // a break is rest, not study
+  if (liveSessionId) return;
+  const startedAt = T.startedAt || Date.now();
+  if (adoptLiveSession(startedAt)) return;
+  const s = addSession(state, {
+    durationMs: 0,
+    mode: T.mode,
+    label: T.subject || '',
+    source: T.mode === 'timer' ? 'timer' : 'stopwatch',
+    start: startedAt,
+    live: true,
+    plannedMs: T.mode === 'timer' ? T.target : 0,
+  });
+  liveSessionId = s ? s.id : '';
+}
+
+/** Write the time banked so far into the live session. */
+function syncLiveSession(force = false) {
+  if (!liveSessionId) return;
+  const now = Date.now();
+  if (!force && now - lastLiveSync < 5000) return;
+  lastLiveSync = now;
+  updateSession(state, liveSessionId, { durationMs: Math.round(elapsedMs()) });
+  if (force) saveNow(state);
+}
+
+/** Close the live session with its final length. */
+function closeLiveSession(durationMs) {
+  if (!liveSessionId) return;
+  const ms = Math.max(0, Math.round(durationMs));
+  if (ms < 1000) {
+    // Too short to be a session — it never really happened, so it goes away
+    // instead of leaving a zero-length entry in the log.
+    removeSession(state, liveSessionId);
+  } else {
+    updateSession(state, liveSessionId, { durationMs: ms, live: false });
+  }
+  liveSessionId = '';
 }
 
 function restoreRuntime() {
-  let raw = null;
-  try { raw = localStorage.getItem(RUNTIME_KEY); } catch { return; }
-  if (!raw) return;
-  let r = null;
-  try { r = JSON.parse(raw); } catch { clearRuntime(); return; }
-  if (!r || typeof r !== 'object') { clearRuntime(); return; }
+  const r = readRuntime();
+  if (!r) return;
 
   T.mode = r.mode === 'timer' ? 'timer' : 'stopwatch';
   T.kind = r.kind === 'break' ? 'break' : 'focus';
@@ -306,20 +335,28 @@ function restoreRuntime() {
   if (T.status === 'running') {
     const elapsed = elapsedMs();
     if (T.mode === 'timer' && elapsed >= T.target) {
-      // Completed while the app was closed — record it faithfully.
+      // Completed while the app was closed — record it faithfully. Only the
+      // time the clock really ran counts, capped at the length of the run.
       const kind = T.kind;
       const subject = T.subject;
       const sessionId = T.sessionId;
       const startedAt = T.startedAt || Date.now() - T.accumulated;
       const planned = plannedSession(sessionId);
+      const logged = Math.min(elapsed, T.target);
+      adoptLiveSession(startedAt);
       T.status = 'idle'; T.accumulated = 0; T.startedAt = 0;
+      T.subject = ''; T.sessionId = '';
       clearRuntime();
-      finishSession(kind, T.target, { silent: true, noChain: true, subject, sessionId, start: startedAt });
+      finishSession(kind, logged, { silent: true, noChain: true, subject, sessionId, start: startedAt });
       showToast(subject
         ? `${subject} session ended, ${formatClock(planned ? planned.end : Date.now())}`
         : 'A session completed while you were away');
     } else {
+      // Pick the run back up — the seconds it spent closed still count.
+      adoptLiveSession(T.startedAt);
+      beginLiveSession();
       scheduleTimeout();
+      startLoop();
     }
   }
   syncModeUI();
@@ -332,7 +369,9 @@ function scheduleTimeout() {
   const remaining = T.target - elapsedMs();
   const fire = () => {
     if (T.status !== 'running' || T.mode !== 'timer') return;
-    finishSession(T.kind, T.target);
+    // Only the time the clock really ran is logged — the run cannot be longer
+    // than its own target, however long the app was closed.
+    finishSession(T.kind, Math.min(elapsedMs(), T.target));
   };
   // A target that is already used up must still end the session — otherwise
   // the clock would sit at 00:00 forever.
@@ -356,6 +395,7 @@ function start(opts = {}) {
   T.status = 'running';
   sound.unlock();
   sound.play('start');
+  beginLiveSession();
   persistRuntime();
   scheduleTimeout();
   requestWakeLock();
@@ -371,6 +411,7 @@ function pause() {
   clearTimeout(timeoutId);
   sound.play('pause');
   persistRuntime();
+  syncLiveSession(true);
   releaseWakeLock();
   stopLoop();
   render();
@@ -379,6 +420,7 @@ function pause() {
 
 function reset() {
   const wasRunning = T.status === 'running';
+  const ran = elapsedMs();
   T.status = 'idle';
   T.accumulated = 0;
   T.startedAt = 0;
@@ -388,6 +430,9 @@ function reset() {
   T.kind = 'focus';
   clearTimeout(timeoutId);
   clearRuntime();
+  // The time the clock really ran stays in the log — a reset throws the run
+  // away, it does not rewrite history.
+  closeLiveSession(ran);
   releaseWakeLock();
   stopLoop();
   if (wasRunning) sound.play('reset');
@@ -422,6 +467,8 @@ function stop() {
       start: startedAt,
     });
   } else {
+    // Too short to count as a session — it is removed again.
+    closeLiveSession(0);
     sound.play('reset');
   }
   render();
@@ -433,6 +480,10 @@ function stop() {
  *
  * `opts.subject` / `opts.sessionId` carry the plan block that was running, so
  * the log and the announcement speak with the right name.
+ *
+ * The rule the whole app is built on: **only the time the clock really ran is
+ * logged**. A plan block says when the work was supposed to happen — it never
+ * adds that time to the record by itself.
  */
 function finishSession(kind, durationMs, opts = {}) {
   const s = state.settings;
@@ -440,26 +491,27 @@ function finishSession(kind, durationMs, opts = {}) {
   const subject = (opts.subject ?? T.subject ?? '').trim();
   const sessionId = opts.sessionId ?? T.sessionId ?? '';
   const planned = plannedSession(sessionId);
-  // A plan block that ran to the end counts for its planned length, even when
-  // the app was opened halfway through.
-  const loggedMs = (!opts.manual && planned) ? planned.durationMs : durationMs;
-  // The start of the record is the moment the work actually began. Only a
-  // session that ran its full plan is anchored to the planned start — a
-  // session that was joined late or stopped early keeps its real span, so the
-  // log never claims time that was not spent.
-  const loggedStart = opts.manual
-    ? (opts.start != null ? opts.start : Date.now())
-    : (planned ? planned.start : (opts.start != null ? opts.start : Date.now()));
+  // The length of the run is the length that was actually spent.
+  const loggedMs = Math.max(0, Math.round(durationMs));
+  // The record starts when the work actually began — never when the plan said
+  // it would.
+  const loggedStart = opts.start != null ? opts.start : runStart();
 
   // Breaks are rest, not study — they stay out of the log and the stats.
   if (!isBreak) {
-    addSession(state, {
-      durationMs: loggedMs,
-      mode: opts.manual ? T.mode : 'timer',
-      label: subject,
-      source: opts.manual ? (T.mode === 'timer' ? 'timer' : 'stopwatch') : 'timer',
-      start: loggedStart,
-    });
+    if (liveSessionId) {
+      // The session was already written to the disk and has been growing —
+      // close it rather than writing a second one.
+      closeLiveSession(loggedMs);
+    } else {
+      addSession(state, {
+        durationMs: loggedMs,
+        mode: opts.manual ? T.mode : 'timer',
+        label: subject,
+        source: opts.manual ? (T.mode === 'timer' ? 'timer' : 'stopwatch') : 'timer',
+        start: loggedStart,
+      });
+    }
   }
 
   state.counters[kind] = (state.counters[kind] || 0) + 1;
@@ -655,6 +707,9 @@ function render() {
   }
 
   el.dial.dataset.running = T.status === 'running' ? 'true' : 'false';
+  // Keep the session on the disk up to date while it runs — this is what
+  // makes the time safe when the app is closed without the timer being stopped.
+  if (T.status === 'running') syncLiveSession();
   renderToday();
 }
 
@@ -688,30 +743,6 @@ function renderToday() {
     el.todayLine.textContent = text;
   }
   renderPlanLine();
-}
-
-/* ═══════════════════════════════════════════════════════════
-   Views
-   ═══════════════════════════════════════════════════════════ */
-
-function setView(view) {
-  const next = view === 'plan' ? 'plan' : 'clock';
-  state.settings.view = next;
-  save(state);
-  const isPlan = next === 'plan';
-  el.clockView.hidden = isPlan;
-  el.planView.hidden = !isPlan;
-  el.viewButtons.forEach(b => {
-    const on = b.dataset.view === next;
-    b.setAttribute('aria-pressed', String(on));
-  });
-  if (isPlan) renderPlanner();
-  else render();
-  renderPlanLine();
-}
-
-function currentView() {
-  return state.settings.view === 'plan' ? 'plan' : 'clock';
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -842,9 +873,11 @@ function announceBlockEnd(subject, durationMs, endTs) {
 }
 
 /**
- * Read a TestOnGo dashboard PDF and turn it into a plan.
+ * Read a timetable PDF and turn it into a plan.
  *
  * The PDF is parsed entirely on the device — nothing is uploaded anywhere.
+ * The very same reader is used by the plan page, so a timetable imported from
+ * either one shows up in both.
  */
 async function importTimetable(file) {
   if (!file) return;
@@ -854,24 +887,16 @@ async function importTimetable(file) {
   banner.textContent = 'Reading the PDF…';
 
   try {
-    const buffer = await file.arrayBuffer();
-    const pages = await extractPdfLayout(buffer);
-    const tt = parseTestOnGo(pages);
-    if (!tt) throw new Error('no-schedule-found');
-
-    const date = tt.date || dateKey(Date.now());
-    const blocks = importIntoPlan(date, tt.sessions, { label: tt.dayLabel, subjects: tt.subjects });
-
+    const result = await importTimetableFile(state, file);
     banner.hidden = true;
-    setPlannerDate(date);
     renderPlanPanel();
     planTick();
-    showToast(`Imported ${blocks} blocks · ${tt.dayLabel}`);
+    showToast(`Imported ${result.blocks} blocks · ${result.label}`);
   } catch (err) {
     console.warn('[Cadence] timetable import failed', err);
     banner.hidden = false;
     banner.dataset.tone = 'warn';
-    banner.textContent = 'That file does not look like a TestOnGo dashboard — no schedule found.';
+    banner.textContent = importErrorMessage(err);
   }
 }
 
@@ -882,8 +907,8 @@ async function importTimetable(file) {
  * foreground, and it does three things:
  *
  *   1. starts the clock for the block that is running right now
- *   2. notices blocks that ended while the app was not watching, so they
- *      still land in the log
+ *   2. marks blocks that ended while the app was not watching, so they are
+ *      never run late — but never logs them, because no time was spent on them
  *   3. keeps the panel and the home line in sync
  *
  * Everything it decides is derived from absolute timestamps, so a throttled
@@ -907,7 +932,9 @@ function planTick() {
       }
     }
 
-    // 2 — pick up blocks that ended without the app watching.
+    // 2 — pick up blocks that ended without the app watching. They are
+    // marked as dealt with, but they are *not* logged: nobody was working
+    // them, so no time was spent on them.
     plan.done = plan.done || {};
     let changed = false;
     for (const b of plan.blocks) {
@@ -916,8 +943,6 @@ function planTick() {
       if (plan.done[b.id]) continue;
       plan.done[b.id] = true;
       changed = true;
-      if (T.sessionId === b.id) continue;         // the clock speaks for itself
-      logMissedBlock(b, date);
     }
     if (changed) save(state);
   }
@@ -925,29 +950,6 @@ function planTick() {
   // 3 — paint.
   renderPlanPanel();
   renderPlanLine();
-  refreshPlanner();
-}
-
-/**
- * A block that ended while the app was closed. It still counts — the plan is
- * the plan, and the plan was carried out — but there is nothing to ring
- * about, so it only leaves a quiet note.
- */
-function logMissedBlock(block, date) {
-  const durationMs = (block.endMin - block.startMin) * 60000;
-  if (block.kind !== 'rest' && durationMs >= 60000) {
-    addSession(state, {
-      durationMs,
-      mode: 'timer',
-      label: block.label,
-      source: 'timer',
-      start: startOfDayKey(date) + block.startMin * 60000,
-    });
-    stats = computeStats(state);
-    renderStats();
-    renderToday();
-  }
-  showToast(`${block.label} session ended, ${clockLabel(block.endMin)}`);
 }
 
 /**
@@ -957,13 +959,11 @@ function logMissedBlock(block, date) {
  * joins the block where it already is.
  */
 function startPlanBlock(block, opts = {}) {
-  const date = opts.date || plannerDate() || dateKey(Date.now());
-  const plan = planFor(date);
+  const date = opts.date || dateKey(Date.now());
   const full = (block.endMin - block.startMin) * 60000;
   if (!full) return;
 
   closePopover();
-  if (currentView() !== 'clock') setView('clock');
 
   if (T.mode !== 'timer') {
     T.mode = 'timer';
@@ -971,7 +971,7 @@ function startPlanBlock(block, opts = {}) {
     syncModeUI();
   }
 
-  let remaining = full;
+  let remaining = opts.remaining || full;
   if (opts.auto) {
     const now = Date.now();
     const endTs = startOfDayKey(date) + block.endMin * 60000;
@@ -988,6 +988,35 @@ function startPlanBlock(block, opts = {}) {
   showToast(`${block.label} started`);
 }
 
+/**
+ * Carry on with the timetable.
+ *
+ * The clock picks up the block that is running right now — or, when there is
+ * none, the next one. Either way the timer starts, and the next session is
+ * shown underneath it.
+ */
+function continueTimetable(date = dateKey(Date.now())) {
+  const plan = planFor(date);
+  if (!plan.blocks.length) {
+    showToast('Nothing is planned for that day');
+    return;
+  }
+  const isToday = date === dateKey(Date.now());
+  const mins = minutesOfDay(Date.now());
+  const { current, next } = dayProgress(plan.blocks, mins, isToday);
+  const block = current || next;
+  if (!block) {
+    showToast('That day is done — nothing left to run');
+    return;
+  }
+  let remaining = (block.endMin - block.startMin) * 60000;
+  if (current && isToday) {
+    const endTs = startOfDayKey(date) + block.endMin * 60000;
+    remaining = Math.max(1000, endTs - Date.now());
+  }
+  startPlanBlock(block, { date, remaining });
+}
+
 /* ── Plan panel (drawer) ─────────────────────────────────── */
 
 function renderPlanPanel() {
@@ -995,6 +1024,7 @@ function renderPlanPanel() {
   const summary = planSummary(plan);
   const has = plan.blocks.length > 0;
   el.ttLoaded.hidden = !has;
+  renderSavedPlans();
   if (!has) {
     el.ttList.innerHTML = '';
     el.ttTasks.hidden = true;
@@ -1002,6 +1032,7 @@ function renderPlanPanel() {
     el.ttCount.textContent = '';
     el.ttDate.textContent = '';
     el.ttSummary.textContent = '';
+    if (el.ttContinue) el.ttContinue.hidden = true;
     renderActivityList();
     return;
   }
@@ -1019,6 +1050,8 @@ function renderPlanPanel() {
   el.ttTasks.textContent = tasks.length
     ? `Tasks · ${tasks.map(t => `${t.name} ${t.done}/${t.total}`).join(' · ')}`
     : '';
+
+  if (el.ttContinue) el.ttContinue.hidden = false;
 
   el.ttList.innerHTML = '';
   for (const b of plan.blocks) {
@@ -1044,6 +1077,100 @@ function renderPlanPanel() {
   }
   void now;
   renderActivityList();
+}
+
+/**
+ * The plans that were saved for the clock from the plan page.
+ *
+ * Each one can be copied back onto its day, or run straight away — the timer
+ * picks up the block that is due, just like “Continue Timetable” does.
+ */
+function renderSavedPlans() {
+  const wrap = el.ttSaved;
+  const list = el.ttSavedList;
+  if (!wrap || !list) return;
+  const saved = state.saved || [];
+  wrap.hidden = saved.length === 0;
+  if (el.ttSavedCount) el.ttSavedCount.textContent = saved.length ? `· ${saved.length}` : '';
+  list.innerHTML = '';
+
+  for (const rec of saved.slice().reverse()) {
+    const row = document.createElement('div');
+    row.className = 'savedrow';
+
+    const main = document.createElement('div');
+    main.className = 'savedrow__main';
+    const title = document.createElement('span');
+    title.className = 'savedrow__title';
+    title.textContent = rec.label || labelDate(rec.date, { weekday: 'long', day: 'numeric', month: 'long' });
+    const sub = document.createElement('span');
+    sub.className = 'savedrow__sub';
+    sub.textContent = `${rec.blocks.length} block${rec.blocks.length === 1 ? '' : 's'}`
+      + ` · ${labelDate(rec.date, { month: 'short', day: 'numeric' })}`;
+    main.append(title, sub);
+
+    const actions = document.createElement('div');
+    actions.className = 'savedrow__actions';
+
+    const use = document.createElement('button');
+    use.type = 'button';
+    use.className = 'btn btn--soft btn--sm';
+    use.textContent = 'Use';
+    use.title = 'Copy this plan onto its day';
+    use.addEventListener('click', () => {
+      setPlan(state, rec.date, {
+        ...getPlan(state, rec.date),
+        date: rec.date,
+        blocks: rec.blocks,
+        tasks: rec.tasks,
+        imported: rec.imported,
+        done: {},
+      });
+      save(state);
+      renderPlanPanel();
+      renderPlanLine();
+      showToast(`Plan copied to ${labelDate(rec.date, { month: 'short', day: 'numeric' })}`);
+    });
+
+    const run = document.createElement('button');
+    run.type = 'button';
+    run.className = 'btn btn--soft btn--sm';
+    run.textContent = 'Run';
+    run.title = 'Start the clock on this plan';
+    run.addEventListener('click', () => {
+      const isToday = rec.date === dateKey(Date.now());
+      const mins = minutesOfDay(Date.now());
+      const { current, next } = dayProgress(rec.blocks, mins, isToday);
+      const block = current || next;
+      if (!block) {
+        showToast('Nothing left to run on that plan');
+        return;
+      }
+      let remaining = (block.endMin - block.startMin) * 60000;
+      if (current && isToday) {
+        const endTs = startOfDayKey(rec.date) + block.endMin * 60000;
+        remaining = Math.max(1000, endTs - Date.now());
+      }
+      startPlanBlock(block, { date: rec.date, remaining });
+      closeDrawer();
+    });
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'icon-btn icon-btn--sm';
+    del.setAttribute('aria-label', `Remove saved plan ${rec.label || rec.date}`);
+    del.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" '
+      + 'stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    del.addEventListener('click', () => {
+      removeSavedPlan(state, rec.id);
+      renderSavedPlans();
+      showToast('Saved plan removed');
+    });
+
+    actions.append(use, run, del);
+    row.append(main, actions);
+    list.appendChild(row);
+  }
 }
 
 /** The user's own activities, with a way to remove them. */
@@ -1076,7 +1203,6 @@ function renderActivityList() {
       state.activities = state.activities.filter(x => x.key !== a.key);
       save(state);
       renderActivityList();
-      refreshPlanner();
       showToast(`Removed "${a.label}"`);
     });
     row.append(name, kind, del);
@@ -1084,27 +1210,38 @@ function renderActivityList() {
   }
 }
 
-/** A single quiet line on the clock screen while a plan exists. */
+/**
+ * Two quiet lines on the clock screen: what is running now, and what comes
+ * next. The second one is what makes “Continue Timetable” useful — you always
+ * know what the clock is about to hand you.
+ */
 function renderPlanLine() {
   const now = Date.now();
   const plan = planFor(dateKey(now));
   const mins = minutesOfDay(now);
-  const cur = blockAt(plan.blocks, mins);
-  const next = nextBlock(plan.blocks, mins);
+  const { current, next } = dayProgress(plan.blocks, mins, true);
 
   let text = '';
-  if (cur) text = `${cur.label} · until ${clockLabel(cur.endMin)}`;
+  if (current) text = `${current.label} · until ${clockLabel(current.endMin)}`;
   else if (next) text = `Next: ${next.label} at ${clockLabel(next.startMin)}`;
   else if (plan.blocks.length) text = 'Plan complete';
+
+  let nextText = '';
+  if (current && next) nextText = `Next: ${next.label} at ${clockLabel(next.startMin)}`;
 
   // This runs on every frame — only touch the DOM when the line really changed.
   if (!text) {
     if (!el.planLine.hidden) el.planLine.hidden = true;
-    return;
-  }
-  if (el.planLine.hidden || el.planLine.textContent !== text) {
+  } else if (el.planLine.hidden || el.planLine.textContent !== text) {
     el.planLine.hidden = false;
     el.planLine.textContent = text;
+  }
+
+  if (!nextText) {
+    if (!el.nextLine.hidden) el.nextLine.hidden = true;
+  } else if (el.nextLine.hidden || el.nextLine.textContent !== nextText) {
+    el.nextLine.hidden = false;
+    el.nextLine.textContent = nextText;
   }
 }
 
@@ -1118,7 +1255,6 @@ function clearTodayPlan() {
   setPlan(state, date, { ...planFor(date), blocks: [], imported: null });
   renderPlanPanel();
   renderPlanLine();
-  refreshPlanner();
   showToast('Today’s plan cleared');
 }
 
@@ -1321,6 +1457,11 @@ function bindSettings() {
   });
 
   el.ttClear.addEventListener('click', clearTodayPlan);
+  // “Continue Timetable” — the clock picks up the block that is due.
+  el.ttContinue?.addEventListener('click', () => {
+    continueTimetable(dateKey(Date.now()));
+    closeDrawer();
+  });
 
   // Sound
   bindToggle('setSoundEnabled', 'soundEnabled', (on) => {
@@ -1372,7 +1513,6 @@ function bindSettings() {
     renderStats();
     renderPlanPanel();
     renderPlanLine();
-    renderPlanner();
     render();
   });
   bindToggle('setFocusMode', 'focusMode', () => applyAppearance());
@@ -1460,7 +1600,6 @@ function bindSettings() {
     render();
     renderStats();
     renderPlanPanel();
-    refreshPlanner();
     showToast('Settings restored to defaults');
   });
 
@@ -1492,7 +1631,6 @@ function bindSettings() {
     render();
     renderStats();
     renderPlanPanel();
-    refreshPlanner();
     renderToday();
     showToast('All data erased');
   });
@@ -1701,7 +1839,6 @@ function importData(event) {
       render();
       renderStats();
       renderPlanPanel();
-      refreshPlanner();
       renderToday();
       showToast('Data imported');
     } catch {
@@ -1880,7 +2017,6 @@ function uiClick() {
 
 function bindEvents() {
   el.tabs.forEach(tab => tab.addEventListener('click', () => { setMode(tab.dataset.mode); uiClick(); }));
-  el.viewButtons.forEach(b => b.addEventListener('click', () => { setView(b.dataset.view); uiClick(); }));
 
   el.primaryBtn.addEventListener('click', () => {
     if (T.status === 'running') pause(); else start();
@@ -1922,15 +2058,6 @@ function bindEvents() {
     const file = el.planImportFile.files?.[0];
     el.planImportFile.value = '';
     if (file) await importTimetable(file);
-  });
-
-  // Copy a day
-  el.planCopy?.addEventListener('click', () => openCopyDialog());
-  el.copyClose?.addEventListener('click', () => el.copyDialog?.close?.());
-  el.copyOptions?.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-copy-from]');
-    if (!btn) return;
-    copyDay(btn.dataset.copyFrom);
   });
 
   // Custom preset creator
@@ -1983,7 +2110,7 @@ function bindEvents() {
         requestWakeLock();
         if (T.mode === 'timer') {
           const remaining = T.target - elapsedMs();
-          if (remaining <= 0) finishSession(T.kind, T.target);
+          if (remaining <= 0) finishSession(T.kind, Math.min(elapsedMs(), T.target));
           else scheduleTimeout();
         }
         startLoop();
@@ -1992,6 +2119,9 @@ function bindEvents() {
       render();
     } else {
       releaseWakeLock();
+      // The clock keeps running in the background — but the time it has banked
+      // is written to the disk before the tab goes away.
+      syncLiveSession(true);
     }
   });
 
@@ -1999,7 +2129,10 @@ function bindEvents() {
     if (T.status === 'running') startLoop();
     planTick();
   });
-  window.addEventListener('pagehide', () => { persistRuntime(); });
+  window.addEventListener('pagehide', () => {
+    persistRuntime();
+    syncLiveSession(true);
+  });
 
   // Install prompt
   window.addEventListener('beforeinstallprompt', (e) => {
@@ -2021,56 +2154,6 @@ function bindEvents() {
   });
 }
 
-/* ── copy a day ─────────────────────────────────────────── */
-
-function openCopyDialog() {
-  const date = plannerDate();
-  const today = dateKey(Date.now());
-  const options = [
-    { key: shiftKey(date, -1), label: 'Previous day' },
-    { key: shiftKey(date, -7), label: 'Last week' },
-    { key: today, label: 'Today' },
-  ];
-  el.copyOptions.innerHTML = '';
-  for (const o of options) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'modal-option';
-    btn.dataset.copyFrom = o.key;
-    btn.innerHTML = `<div><div class="mo-title">${o.label}</div>`
-      + `<div class="mo-sub">${new Date(o.key.replace(/-/g, '/')).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div></div>`
-      + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">'
-      + '<path d="m9 18 6-6-6-6"/></svg>';
-    el.copyOptions.appendChild(btn);
-  }
-  if (typeof el.copyDialog.showModal === 'function') el.copyDialog.showModal();
-  else el.copyDialog.setAttribute('open', '');
-}
-
-function copyDay(fromDate) {
-  const date = plannerDate();
-  if (fromDate === date) {
-    showToast('That is the same day');
-    return;
-  }
-  const from = planFor(fromDate);
-  if (!from.blocks.length) {
-    showToast('Nothing planned on that day');
-    return;
-  }
-  const to = planFor(date);
-  setPlan(state, date, {
-    ...to,
-    blocks: from.blocks.map(b => ({ ...b, id: uid('b') })),
-    imported: from.imported ? { ...from.imported } : null,
-  });
-  el.copyDialog.close?.();
-  renderPlanPanel();
-  renderPlanLine();
-  refreshPlanner();
-  showToast('Plan copied');
-}
-
 /* ── keyboard ────────────────────────────────────────────── */
 
 function onKeyDown(e) {
@@ -2083,7 +2166,6 @@ function onKeyDown(e) {
     if (!el.durationPop.hidden) { closePopover(); return; }
     if (!el.settingsPanel.hidden) { closeDrawer(); return; }
     if (el.addDialog.open) { el.addDialog.close(); return; }
-    if (el.copyDialog?.open) { el.copyDialog.close(); return; }
     if (state.settings.focusMode) {
       state.settings.focusMode = false;
       save(state);
@@ -2101,25 +2183,22 @@ function onKeyDown(e) {
 
   if (e.code === 'Space') {
     if (onButton) return;
-    if (currentView() !== 'clock') return;
     e.preventDefault();
     if (T.status === 'running') pause(); else start();
   } else if (e.key === 'r' || e.key === 'R') {
-    if (currentView() !== 'clock') return;
     reset();
   } else if (e.key === 's' || e.key === 'S') {
-    if (currentView() !== 'clock') return;
     setMode(T.mode === 'timer' ? 'stopwatch' : 'timer');
   } else if (e.key === 'a' || e.key === 'A') {
     openAddDialog();
   } else if (e.key === 'f' || e.key === 'F') {
-    if (currentView() !== 'clock') return;
     state.settings.focusMode = !state.settings.focusMode;
     save(state);
     applyAppearance();
     syncSettingsUI();
   } else if (e.key === 'p' || e.key === 'P') {
-    setView(currentView() === 'plan' ? 'clock' : 'plan');
+    // The planner lives on its own page now.
+    location.href = './plan.html';
   }
 }
 
@@ -2162,8 +2241,10 @@ function detectPlatform() {
 }
 
 /**
- * Launch parameters — used by the PWA shortcuts in the manifest
- * (e.g. `?view=plan`).
+ * Launch parameters — used by the PWA shortcuts in the manifest.
+ *
+ * The old `?view=plan` shortcut is still honoured: it simply walks over to
+ * the plan page, which is where the planner lives now.
  */
 function applyLaunchParams() {
   const params = new URLSearchParams(location.search);
@@ -2171,7 +2252,10 @@ function applyLaunchParams() {
   const mode = params.get('mode');
   const dur = parseInt(params.get('dur'), 10);
 
-  if (view === 'plan' || view === 'clock') state.settings.view = view;
+  if (view === 'plan') {
+    location.replace('./plan.html');
+    return;
+  }
 
   if (mode === 'timer' || mode === 'stopwatch') {
     T.mode = mode;
@@ -2210,23 +2294,7 @@ function init() {
   renderPresetChips();
   renderQuickDurations();
 
-  // The planner needs the store; it writes back through the same functions.
-  mountPlanner({
-    state,
-    el,
-    toast: showToast,
-    save: () => save(state),
-    getPlan: (date) => getPlan(state, date),
-    setPlan: (date, plan) => setPlan(state, date, plan),
-    blocksFromSessions,
-    onPlanChanged: () => {
-      renderPlanLine();
-      renderPlanPanel();
-    },
-    onStartBlock: (block) => startPlanBlock(block),
-    onCopyRequest: () => openCopyDialog(),
-  });
-
+  // The planner lives on its own page now — this page is the clock.
   stats = computeStats(state);
   render();
   renderToday();
@@ -2236,9 +2304,11 @@ function init() {
   bindEvents();
   bindSettings();
   restoreRuntime();
+  // Any session that was still live when the app went away is closed here —
+  // the time it banked is real, so it is kept.
+  closeOrphanSessions(state, Date.now(), liveSessionId);
   applyLaunchParams();
   updateControls();
-  setView(currentView());
   render();
 
   detectPlatform();

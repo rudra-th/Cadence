@@ -23,6 +23,7 @@
  */
 
 const RANGE_RE = /(\d{1,2}):(\d{2})\s*([AP])\s*M\s*[-–—]+\s*(\d{1,2}):(\d{2})\s*([AP])\s*M/i;
+const RANGE_24_RE = /(?<![\d:])(\d{1,2}):(\d{2})\s*[-–—]+\s*(\d{1,2}):(\d{2})(?![\d:])/;
 const DATE_RE = /^([A-Za-z]+day),?\s+(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/i;
 const BREAK_RE = /\b(break|sleep|rest|lunch|meal|recess|nap|tea)\b/i;
 
@@ -193,6 +194,104 @@ export function isoDate(ts) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/**
+ * Read any timetable PDF.
+ *
+ * A TestOnGo dashboard is read the way it is written — the SCHEDULE table,
+ * with its wrapped duration cells. Anything else is read the plain way: any
+ * row that holds a time range becomes a session, and the text next to it
+ * becomes its name.
+ *
+ * @param {Array} pages  output of `extractPdfLayout`
+ * @returns {object|null}  timetable description
+ */
+export function parseSchedule(pages) {
+  const known = parseTestOnGo(pages);
+  if (known) return known;
+  return parseGenericSchedule(pages);
+}
+
+/**
+ * The plain reader — a row is a session when it starts with a time range.
+ */
+export function parseGenericSchedule(pages) {
+  const lines = [];
+  for (const page of pages) lines.push(...page.lines);
+
+  const sessions = [];
+  const seen = new Set();
+
+  for (const line of lines) {
+    const cells = line.cells;
+    if (!cells.length) continue;
+    const first = cells[0].text.trim();
+
+    let startMin = null;
+    let endMin = null;
+
+    const ampm = RANGE_RE.exec(first);
+    if (ampm) {
+      startMin = parseClock(ampm[1], ampm[2], ampm[3]);
+      endMin = parseClock(ampm[4], ampm[5], ampm[6]);
+    } else {
+      const plain = RANGE_24_RE.exec(first);
+      if (plain) {
+        const h1 = Number(plain[1]);
+        const m1 = Number(plain[2]);
+        const h2 = Number(plain[3]);
+        const m2 = Number(plain[4]);
+        if (h1 < 24 && h2 < 24 && m1 < 60 && m2 < 60) {
+          startMin = h1 * 60 + m1;
+          endMin = h2 * 60 + m2;
+        }
+      }
+    }
+
+    if (startMin === null || endMin === null) continue;
+    if (endMin <= startMin) endMin += 1440;              // crosses midnight
+    if (endMin - startMin > 1440) continue;
+
+    const subject = cells.slice(1)
+      .map(c => c.text.trim())
+      .filter(Boolean)
+      .join(' ')
+      .trim() || 'Session';
+
+    const key = `${startMin}-${endMin}-${subject.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    sessions.push({
+      id: `gt-${startMin}-${endMin}-${sessions.length}`,
+      subject: subject.slice(0, 60),
+      startMin,
+      endMin,
+      durationMs: (endMin - startMin) * 60000,
+      isBreak: BREAK_RE.test(subject),
+    });
+  }
+
+  if (!sessions.length) return null;
+  sessions.sort((a, b) => a.startMin - b.startMin);
+
+  const date = findDate(lines);
+  const dayStart = date
+    ? new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+    : new Date().setHours(0, 0, 0, 0);
+
+  return {
+    date: isoDate(dayStart),
+    dayLabel: date
+      ? date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+      : 'Imported timetable',
+    dayStart,
+    sessions,
+    subjects: findSubjects(lines),
+    importedAt: Date.now(),
+    done: {},
+  };
 }
 
 /** The session covering `now`, or the next one that has not started. */

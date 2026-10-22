@@ -13,17 +13,23 @@
  *    revalidate) — instant loads, quiet updates.
  */
 
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.1.0';
 const CACHE = `cadence-${VERSION}`;
 
 const SHELL = [
   './',
   './index.html',
+  './clock.html',
+  './plan.html',
   './app.html',
   './manifest.webmanifest',
   './favicon.svg',
   './assets/css/styles.css',
-  './assets/js/app.js',
+  './assets/js/clock.js',
+  './assets/js/planpage.js',
+  './assets/js/runtime.js',
+  './assets/js/timetable-import.js',
+  './assets/js/pdfwrite.js',
   './assets/js/landing.js',
   './assets/js/store.js',
   './assets/js/plan.js',
@@ -141,7 +147,7 @@ self.addEventListener('fetch', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = event.notification.data?.url || './app.html';
+  const target = event.notification.data?.url || './clock.html';
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of all) {

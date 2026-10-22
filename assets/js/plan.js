@@ -172,6 +172,39 @@ export function nextBlock(blocks, minutes) {
   return null;
 }
 
+/**
+ * What the day looks like right now.
+ *
+ * `current` is the block that is running at this minute of the day — the
+ * thing the person is supposed to be doing. `next` is the one after it.
+ * On a day that is not today there is no “now”, so the current block is null
+ * and the next one is simply the first block of that day.
+ */
+export function dayProgress(blocks, minutes, isToday = true) {
+  const sorted = sortBlocks(blocks);
+  if (!sorted.length) return { current: null, next: null };
+  if (!isToday) return { current: null, next: sorted[0] };
+  return { current: blockAt(sorted, minutes), next: nextBlock(sorted, minutes) };
+}
+
+/**
+ * The work that is still to be done on a day.
+ *
+ * A timetable carries two kinds of to-do: the tasks the person typed, and
+ * the subject breakdown that came with an imported timetable. Both are
+ * returned so the planner can show them side by side.
+ */
+export function pendingWork(plan) {
+  const tasks = Array.isArray(plan?.tasks) ? plan.tasks : [];
+  const subjects = Array.isArray(plan?.imported?.subjects) ? plan.imported.subjects : [];
+  return {
+    tasks,
+    subjects,
+    left: tasks.filter(t => !t.done).length,
+    total: tasks.length,
+  };
+}
+
 /** Everything the header of the planner wants to say about a day. */
 export function planSummary(plan) {
   const blocks = plan ? plan.blocks : [];

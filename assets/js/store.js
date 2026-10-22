@@ -25,7 +25,6 @@ export const DEFAULTS = {
   version: 1,
   settings: {
     mode: 'stopwatch',
-    view: 'clock',
 
     focusMin: 25,
     breakMin: 5,
@@ -63,6 +62,7 @@ export const DEFAULTS = {
   counters: { focus: 0, break: 0 },
   plans: {},
   activities: [],
+  saved: [],
 };
 
 /* ── helpers ──────────────────────────────────────────────── */
@@ -130,7 +130,6 @@ export function sanitizeSettings(raw) {
     if (Number.isFinite(v)) out[key] = clampNum(v, min, max);
   }
   if (raw.mode === 'timer' || raw.mode === 'stopwatch') out.mode = raw.mode;
-  if (raw.view === 'timer' || raw.view === 'plan' || raw.view === 'clock') out.view = raw.view;
   if (typeof raw.soundTheme === 'string' && SOUND_THEMES.some(t => t.id === raw.soundTheme)) {
     out.soundTheme = raw.soundTheme;
   }
@@ -153,18 +152,44 @@ export function sanitizeSessions(list) {
   for (const s of list) {
     if (!s || typeof s !== 'object') continue;
     const durationMs = Number(s.durationMs);
-    if (!Number.isFinite(durationMs) || durationMs <= 0) continue;
+    if (!Number.isFinite(durationMs)) continue;
     const start = Number(s.start);
     out.push({
       id: typeof s.id === 'string' && s.id ? s.id : uid('s'),
       start: Number.isFinite(start) ? start : Date.now(),
-      durationMs: Math.round(durationMs),
+      durationMs: Math.max(0, Math.round(durationMs)),
       mode: typeof s.mode === 'string' ? s.mode : (s.source === 'manual' ? 'manual' : 'timer'),
       label: typeof s.label === 'string' ? s.label.trim().slice(0, 60) : '',
       source: SOURCES.includes(s.source) ? s.source : 'timer',
+      // A live session is one that is still growing — it is written to disk
+      // while it runs, so closing the app never loses the time.
+      live: !!s.live,
+      plannedMs: Math.max(0, Math.round(Number(s.plannedMs) || 0)),
     });
   }
   return out;
+}
+
+/** Rebuild the plans that were saved to the timer from the plan page. */
+export function sanitizeSavedPlans(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const raw of list) {
+    if (!raw || typeof raw !== 'object') continue;
+    const date = typeof raw.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.date) ? raw.date : '';
+    if (!date) continue;
+    const plan = sanitizePlan(raw, date);
+    out.push({
+      id: typeof raw.id === 'string' && raw.id ? raw.id : uid('sp'),
+      date,
+      label: typeof raw.label === 'string' ? raw.label.slice(0, 80) : '',
+      savedAt: Number(raw.savedAt) || Date.now(),
+      blocks: plan.blocks,
+      tasks: plan.tasks,
+      imported: plan.imported,
+    });
+  }
+  return out.slice(0, 12);
 }
 
 /** Rebuild the custom activities. */
@@ -241,6 +266,7 @@ export function load() {
     };
     merged.plans = sanitizePlans(parsed.plans);
     merged.activities = sanitizeActivities(parsed.activities);
+    merged.saved = sanitizeSavedPlans(parsed.saved);
     return merged;
   } catch (err) {
     console.warn('[Cadence] store unreadable, starting fresh', err);
@@ -285,19 +311,68 @@ export function setPlan(state, date, plan) {
 
 /* ── sessions ────────────────────────────────────────────── */
 
-export function addSession(state, { durationMs, mode, label = '', source = 'timer', start = Date.now() }) {
-  if (!durationMs || durationMs < 1000) return null;
+/**
+ * Add a session to the log.
+ *
+ * A *live* session is one that is still running: it is written to disk with
+ * a duration of zero and grows while the timer runs. That is what makes the
+ * time safe — closing the tab, reloading the page or locking the phone can
+ * never lose a session, because the session was already on the disk.
+ */
+export function addSession(state, {
+  durationMs, mode, label = '', source = 'timer', start = Date.now(), live = false, plannedMs = 0,
+}) {
+  if (!live && (!durationMs || durationMs < 1000)) return null;
   const session = {
     id: uid('s'),
     start,
-    durationMs: Math.round(durationMs),
+    durationMs: Math.max(0, Math.round(durationMs || 0)),
     mode,
     label: label.trim().slice(0, 60),
     source,
+    plannedMs: Math.max(0, Math.round(plannedMs || 0)),
   };
+  if (live) session.live = true;
   state.sessions.push(session);
   save(state);
   return session;
+}
+
+/** Change a session in place — used to grow and close a live session. */
+export function updateSession(state, id, patch) {
+  const s = state.sessions.find(x => x.id === id);
+  if (!s) return null;
+  if (patch.durationMs != null) s.durationMs = Math.max(0, Math.round(patch.durationMs));
+  if (patch.label != null) s.label = String(patch.label).slice(0, 60);
+  if (patch.live != null) s.live = !!patch.live;
+  if (patch.start != null) s.start = patch.start;
+  save(state);
+  return s;
+}
+
+/**
+ * Close every session that was still live when the app went away.
+ *
+ * A live session means “the timer was on and the app died”. The time it had
+ * banked is real, so it is kept — capped at the length the session was
+ * supposed to run, because a timer left alone for a night is not a study
+ * session of nine hours.
+ *
+ * `exceptId` is the session of the run that is being picked up again — it is
+ * left alone, because it is still counting.
+ */
+export function closeOrphanSessions(state, now = Date.now(), exceptId = '') {
+  let changed = false;
+  for (const s of state.sessions) {
+    if (!s.live || s.id === exceptId) continue;
+    const elapsed = Math.max(0, now - s.start);
+    const capped = s.plannedMs > 0 ? Math.min(elapsed, s.plannedMs) : elapsed;
+    s.durationMs = Math.round(capped);
+    s.live = false;
+    changed = true;
+  }
+  if (changed) save(state);
+  return changed;
 }
 
 export function removeSession(state, id) {
@@ -307,6 +382,50 @@ export function removeSession(state, id) {
 
 export function recentSessions(state, limit = 60) {
   return state.sessions.slice().sort((a, b) => b.start - a.start).slice(0, limit);
+}
+
+/* ── plans saved for the timer ────────────────────────────── */
+
+/**
+ * Save a plan for the clock.
+ *
+ * This is what “Save to timer” does on the plan page: it takes the day that
+ * is on screen and parks a copy of it in the store, so the clock's settings
+ * menu can offer it later — to run, or to copy back onto a day.
+ */
+export function savePlanForTimer(state, plan, label = '') {
+  if (!plan || !Array.isArray(plan.blocks) || !plan.blocks.length) return null;
+  const date = plan.date || dateKey(Date.now());
+  const existing = state.saved.find(s => s.date === date);
+  const clean = sanitizePlan({ ...plan, date }, date);
+  const record = {
+    id: existing ? existing.id : uid('sp'),
+    date,
+    label: String(label || plan.imported?.label || '').slice(0, 80),
+    savedAt: Date.now(),
+    blocks: clean.blocks,
+    tasks: clean.tasks,
+    imported: clean.imported,
+  };
+  if (existing) {
+    state.saved = state.saved.map(s => (s.id === existing.id ? record : s));
+  } else {
+    state.saved.push(record);
+  }
+  // Keep the list short — the newest twelve are the ones that matter.
+  state.saved = state.saved.slice(-12);
+  save(state);
+  return record;
+}
+
+export function removeSavedPlan(state, id) {
+  const before = state.saved.length;
+  state.saved = state.saved.filter(s => s.id !== id);
+  if (state.saved.length !== before) save(state);
+}
+
+export function getSavedPlan(state, id) {
+  return state.saved.find(s => s.id === id) || null;
 }
 
 /* ── derived stats ───────────────────────────────────────── */
