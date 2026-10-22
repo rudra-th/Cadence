@@ -95,6 +95,37 @@ function paintVersion() {
     .catch(() => { /* the manifest is optional here */ });
 }
 
+/* ── Smooth scroll with Lenis ────────────────────────────── */
+
+function initSmoothScroll() {
+  if (typeof Lenis !== 'undefined') {
+    const lenis = new Lenis({
+      duration: 1.2,
+      easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+      direction: 'vertical',
+      gestureDirection: 'vertical',
+      smooth: true,
+      smoothTouch: false,
+      touchMultiplier: 2,
+    });
+
+    function raf(time) {
+      lenis.raf(time);
+      requestAnimationFrame(raf);
+    }
+    requestAnimationFrame(raf);
+
+    // Integrate with GSAP ScrollTrigger if available
+    if (typeof gsap !== 'undefined' && typeof ScrollTrigger !== 'undefined') {
+      lenis.on('scroll', ScrollTrigger.update);
+      gsap.ticker.add((time) => {
+        lenis.raf(time * 1000);
+      });
+      gsap.ticker.lagSmoothing(0);
+    }
+  }
+}
+
 /* ── Scroll animations ───────────────────────────────────── */
 
 function initScrollAnimations() {
@@ -107,10 +138,10 @@ function initScrollAnimations() {
     });
   }, { threshold: 0.08, rootMargin: '0px 0px -80px 0px' });
 
-  document.querySelectorAll('.feature, .step, .local__item, .section__head, .hero__content').forEach(el => {
+  document.querySelectorAll('.feature, .step, .local__item, .section__head, .hero__content, .cta').forEach(el => {
     el.style.opacity = '0';
-    el.style.transform = 'translateY(50px)';
-    el.style.transition = 'opacity 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+    el.style.transform = 'translateY(60px)';
+    el.style.transition = 'opacity 1.4s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 1.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
     observer.observe(el);
   });
 
@@ -130,11 +161,13 @@ function initScrollAnimations() {
           progressBar.style.width = progress + '%';
         }
         
-        // Parallax on hero
-        const hero = document.querySelector('.hero');
-        if (hero && scrolled < winHeight * 1.5) {
-          hero.style.transform = `translateY(${scrolled * 0.4}px)`;
-        }
+        // Parallax on hero orbs
+        const heroOrbs = document.querySelectorAll('.hero__orb');
+        heroOrbs.forEach((orb, i) => {
+          if (scrolled < winHeight * 1.5) {
+            orb.style.transform = `translateY(${scrolled * (0.2 + i * 0.1)}px) scale(${1 + scrolled * 0.0002})`;
+          }
+        });
         
         // Cinematic sections
         document.querySelectorAll('.cinematic-section').forEach(section => {
@@ -154,6 +187,7 @@ function initScrollAnimations() {
 
 /* ── Go ────────────────────────────────────────────────────── */
 
+initSmoothScroll();
 bindThemeToggle();
 bindPreviewClock();
 bindInstall();
