@@ -34,9 +34,9 @@
   })();
 </script>
 </head>
-<body class="landing">
+<body class="landing cinematic">
 
-<header class="nav">
+<header class="nav nav--sticky">
   <a class="brand" href="./index.html" aria-label="Cadence — home">
     <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
       <defs>
@@ -54,6 +54,8 @@
   </a>
 
   <nav class="nav__links" aria-label="Sections">
+    <a href="#features">Overview</a>
+    <a href="#how">Workflow</a>
     <a href="#planner">Planner</a>
     <a href="#clock">Clock</a>
     <a href="#local">Local</a>
@@ -69,72 +71,112 @@
   </div>
 </header>
 
-<main>
+<div class="scroll-progress">
+  <div class="scroll-progress__bar" id="scrollProgress"></div>
+</div>
+
+<main class="cinematic-main">
 
   <!-- ══════════ Hero ══════════ -->
-  <section class="wrap hero">
-    <div>
-      <p class="eyebrow">Offline-first study workspace</p>
+  <section class="wrap hero cinematic-section">
+    <div class="hero__content">
+      <div class="hero__badge">
+        <span class="hero__badge-dot"></span>
+        <span>Offline-first • No account • Local only</span>
+      </div>
+      <p class="eyebrow">Time-blocking reimagined</p>
       <h1>Plan the day.<br>Run the day.</h1>
       <p class="hero__lede">
-        Cadence turns a plan into a running clock. Paint your day onto a
-        24-hour canvas, and the timer picks it up block by block — the block
-        that is running now is the block the clock is counting.
+        Cadence turns your plan into an intelligent running clock. Paint your day onto a
+        30-minute grid, import timetables, and let the timer flow through your blocks
+        seamlessly.
       </p>
 
       <div class="hero__cta">
-        <a class="btn btn--primary" href="./plan.html">Plan your day</a>
-        <a class="btn btn--soft" href="./clock.html">Run the clock</a>
-        <button class="btn btn--soft" id="installLandingBtn" type="button" hidden>Install for offline</button>
+        <a class="btn btn--primary btn--glow" href="./plan.html">
+          <span>Start Planning</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </a>
+        <a class="btn btn--soft" href="./clock.html">
+          <span>Open Timer</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </a>
+        <button class="btn btn--soft" id="installLandingBtn" type="button" hidden>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Install App</span>
+        </button>
       </div>
 
-      <div class="hero__meta">
-        <span>No account</span>
-        <span>Works offline</span>
-        <span>Everything stays on this device</span>
+      <div class="hero__stats">
+        <div class="hero__stat">
+          <div class="hero__stat-num">30m</div>
+          <div class="hero__stat-label">Time blocks</div>
+        </div>
+        <div class="hero__stat">
+          <div class="hero__stat-num">100%</div>
+          <div class="hero__stat-label">Offline</div>
+        </div>
+        <div class="hero__stat">
+          <div class="hero__stat-num">0</div>
+          <div class="hero__stat-label">Tracking</div>
+        </div>
       </div>
     </div>
 
-    <div class="preview" aria-hidden="true">
+    <div class="preview cinematic-preview" aria-hidden="true">
+      <div class="preview__glow"></div>
       <div class="preview__grid">
         <div class="preview__row">
-          <span class="preview__time">08:00</span>
+          <span class="preview__time">06:00</span>
           <span class="preview__track">
-            <span class="preview__block" style="left:0%;width:34%;--tone:#C7C7C7"></span>
+            <span class="preview__block preview__block--1" style="left:0%;width:33%"></span>
           </span>
         </div>
         <div class="preview__row">
-          <span class="preview__time">10:00</span>
+          <span class="preview__time">09:00</span>
           <span class="preview__track">
-            <span class="preview__block" style="left:14%;width:52%;--tone:#999999"></span>
+            <span class="preview__block preview__block--2" style="left:16%;width:50%"></span>
           </span>
         </div>
         <div class="preview__row">
-          <span class="preview__time">14:00</span>
+          <span class="preview__time">13:00</span>
           <span class="preview__track">
-            <span class="preview__block" style="left:60%;width:26%;--tone:#3C3C3C"></span>
+            <span class="preview__block preview__block--3" style="left:66%;width:33%"></span>
           </span>
         </div>
         <div class="preview__row">
-          <span class="preview__time">17:30</span>
+          <span class="preview__time">17:00</span>
           <span class="preview__track">
-            <span class="preview__block" style="left:83%;width:17%;--tone:#666666"></span>
+            <span class="preview__block preview__block--4" style="left:83%;width:17%"></span>
           </span>
         </div>
       </div>
 
       <div class="preview__dial">
         <svg class="preview__ring" viewBox="0 0 100 100">
-          <circle cx="50" cy="50" r="42" fill="none" stroke="var(--surface-2)" stroke-width="7"/>
-          <circle cx="50" cy="50" r="42" fill="none" stroke="var(--text)" stroke-width="7"
-                  stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="96"
+          <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="6"/>
+          <circle cx="50" cy="50" r="42" fill="none" stroke="url(#ringGrad)" stroke-width="6"
+                  stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="70"
                   transform="rotate(-90 50 50)"/>
+          <defs>
+            <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#7FA6FF"/>
+              <stop offset="50%" stop-color="#63C9A4"/>
+              <stop offset="100%" stop-color="#E9B667"/>
+            </linearGradient>
+          </defs>
         </svg>
         <div class="preview__readout">
           <div class="preview__time-big" id="previewClock">--:--</div>
           <div class="preview__note" id="previewDate">—</div>
+          <div class="preview__status">Running</div>
         </div>
       </div>
+    </div>
+
+    <div class="scroll-indicator">
+      <span>Scroll to explore</span>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
     </div>
   </section>
 

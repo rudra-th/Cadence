@@ -1,37 +1,72 @@
 /* ═══════════════════════════════════════════════════════════
-   Cadence — enhanced landing page
+   Cadence — cinematic landing page
    ═══════════════════════════════════════════════════════════ */
 
-.landing {
+html {
   scroll-behavior: smooth;
 }
 
+.landing {
+  scroll-behavior: smooth;
+  overscroll-behavior-y: none;
+}
+
 .landing .nav {
-  backdrop-filter: blur(20px) saturate(180%);
-  background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 100%);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  backdrop-filter: blur(30px) saturate(200%);
+  background: linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.6) 100%);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  transition: all 0.3s ease;
+}
+
+.nav--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(255,255,255,0.05);
+  z-index: 101;
+}
+
+.scroll-progress__bar {
+  height: 100%;
+  background: linear-gradient(90deg, #7FA6FF, #63C9A4, #E9B667);
+  width: 0%;
+  transition: width 0.1s ease;
+}
+
+.cinematic-main {
+  position: relative;
 }
 
 .landing .hero {
   position: relative;
-  padding: 140px 0 100px;
+  padding: 160px 0 120px;
   overflow: hidden;
   min-height: 100vh;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 80px;
   align-items: center;
 }
 
 .landing .hero::before {
   content: '';
   position: absolute;
-  top: -30%;
-  left: 50%;
-  width: 1000px;
-  height: 1000px;
-  transform: translateX(-50%);
-  background: radial-gradient(circle, rgba(127,166,255,0.18) 0%, rgba(99,201,164,0.12) 40%, transparent 70%);
+  top: -40%;
+  right: -20%;
+  width: 1200px;
+  height: 1200px;
+  background: radial-gradient(circle, rgba(127,166,255,0.15) 0%, rgba(99,201,164,0.1) 30%, transparent 60%);
   pointer-events: none;
-  animation: heroGlow 12s ease-in-out infinite;
+  animation: heroGlow 15s ease-in-out infinite;
+  filter: blur(60px);
 }
 
 .landing .hero::after {

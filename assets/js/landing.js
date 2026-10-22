@@ -105,25 +105,46 @@ function initScrollAnimations() {
         entry.target.style.transform = 'translateY(0) scale(1)';
       }
     });
-  }, { threshold: 0.1, rootMargin: '0px 0px -60px 0px' });
+  }, { threshold: 0.08, rootMargin: '0px 0px -80px 0px' });
 
-  document.querySelectorAll('.feature, .step, .local__item, .section__head').forEach(el => {
+  document.querySelectorAll('.feature, .step, .local__item, .section__head, .hero__content').forEach(el => {
     el.style.opacity = '0';
-    el.style.transform = 'translateY(40px)';
-    el.style.transition = 'opacity 1s ease-out, transform 1s ease-out';
+    el.style.transform = 'translateY(50px)';
+    el.style.transition = 'opacity 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
     observer.observe(el);
   });
 
-  // Parallax effect on scroll
+  // Cinematic scroll effects
   let ticking = false;
   window.addEventListener('scroll', () => {
     if (!ticking) {
       window.requestAnimationFrame(() => {
         const scrolled = window.pageYOffset;
-        const hero = document.querySelector('.hero');
-        if (hero) {
-          hero.style.transform = `translateY(${scrolled * 0.3}px)`;
+        const winHeight = window.innerHeight;
+        
+        // Progress bar
+        const progressBar = document.getElementById('scrollProgress');
+        if (progressBar) {
+          const docHeight = document.documentElement.scrollHeight - winHeight;
+          const progress = (scrolled / docHeight) * 100;
+          progressBar.style.width = progress + '%';
         }
+        
+        // Parallax on hero
+        const hero = document.querySelector('.hero');
+        if (hero && scrolled < winHeight * 1.5) {
+          hero.style.transform = `translateY(${scrolled * 0.4}px)`;
+        }
+        
+        // Cinematic sections
+        document.querySelectorAll('.cinematic-section').forEach(section => {
+          const rect = section.getBoundingClientRect();
+          const sectionTop = rect.top + scrolled;
+          const sectionHeight = rect.height;
+          const progress = Math.min(Math.max((scrolled - sectionTop + winHeight) / (sectionHeight + winHeight), 0), 1);
+          section.style.setProperty('--scroll-progress', progress);
+        });
+        
         ticking = false;
       });
       ticking = true;
