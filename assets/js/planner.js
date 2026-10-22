@@ -18,7 +18,7 @@ import {
   minutesOfDay, uid,
 } from './util.js';
 
-const HALF = 48;                 // slots per column (12 hours)
+const HALF = 24;                 // slots per column (12 hours) - 30min slots
 const COL_MIN = 720;             // minutes per column
 
 let ctx = null;

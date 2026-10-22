@@ -16,7 +16,7 @@ import { importTimetable, importErrorMessage } from './timetable-import.js';
 import { buildPlanPdf, downloadPlanPdf } from './pdfwrite.js';
 import { handOverToClock, runningSession } from './runtime.js';
 
-const HALF = 48;
+const HALF = 24;
 const COL_MIN = 720;
 
 let state = load();
@@ -79,7 +79,7 @@ function showToast(msg) {
 }
 
 function plan() { return getPlan(state, currentDate); }
-function writePlan(next) { setPlan(state, currentDate, next); render(); }
+function writePlan(next) { setPlan(state, currentDate, next); state = load(); render(); }
 
 function activities() { return activityMap(state.activities); }
 function brushActivity() {
@@ -188,7 +188,7 @@ function renderGrid(p) {
       elb.style.setProperty('--row', String(rowStart));
       elb.style.setProperty('--span', String(rowEnd - rowStart));
       elb.title = `${b.label} · ${blockRangeLabel(b)}`;
-      elb.innerHTML = `<span class="grid__blocklabel">${escapeHtml(b.label)}</span><span class="grid__blockcode">${escapeHtml(codeOf(b.label))}</span>`;
+      elb.innerHTML = `<span class="grid__blocklabel">${escapeHtml(b.label)}</span><span class="grid__blockcode">${escapeHtml(codeOf(b.label))} · ${humanDuration((b.endMin - b.startMin) * 60000)}</span>`;
       track.appendChild(elb);
     }
 
@@ -428,7 +428,8 @@ function bindEvents() {
     state.settings.brush = key;
     save(state);
     eraseMode = false;
-    renderPicker();
+    state = load();
+    render();
     showToast(`Added "${label}"`);
   });
 
@@ -454,7 +455,7 @@ function bindEvents() {
     if (!file) return;
     try {
       const result = await importTimetable(state, file);
-      save(state);
+      state = load();
       currentDate = result.date;
       showToast(`Imported ${result.blocks} blocks · ${result.label}`);
       render();
@@ -474,7 +475,7 @@ function bindEvents() {
     if (!file) return;
     try {
       const result = await importTimetable(state, file);
-      save(state);
+      state = load();
       currentDate = result.date;
       showToast(`Imported ${result.blocks} blocks · ${result.label}`);
       render();
@@ -493,7 +494,7 @@ function bindEvents() {
     if (!file) return;
     try {
       const result = await importTimetable(state, file);
-      save(state);
+      state = load();
       currentDate = result.date;
       showToast(`Imported ${result.blocks} blocks · ${result.label}`);
       render();
@@ -607,6 +608,18 @@ function init() {
   bindEvents();
   render();
   updateRuntimeChip();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      state = load();
+      render();
+      updateRuntimeChip();
+    }
+  });
+  window.addEventListener('focus', () => {
+    state = load();
+    render();
+    updateRuntimeChip();
+  });
 }
 
 init();

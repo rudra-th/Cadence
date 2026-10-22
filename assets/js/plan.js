@@ -16,8 +16,8 @@
 
 import { uid, clockLabel } from './util.js';
 
-export const SLOT_MIN = 15;          // one grid slot = 15 minutes
-export const SLOTS = 96;             // 24 hours × 4
+export const SLOT_MIN = 30;          // one grid slot = 30 minutes (like TestOnGo)
+export const SLOTS = 48;             // 24 hours × 2
 export const DAY_MIN = 1440;
 
 const BREAK_RE = /\b(break|sleep|rest|lunch|meal|dinner|recess|nap|tea|free)\b/i;
