@@ -1,0 +1,2259 @@
+/**
+ * Cadence — the application controller.
+ *
+ * Two halves, one state:
+ *   • the CLOCK  — a stopwatch and a timer that know how to run a plan
+ *   • the PLAN   — a day painted on a grid, which the clock then follows
+ *
+ * Timing is derived from wall-clock timestamps, never from tick counts, so the
+ * clock stays exact when the tab is throttled, backgrounded or the screen is
+ * off.
+ */
+
+import { sound } from './audio.js';
+import {
+  DEFAULTS, load, save, saveNow, clearStore,
+  addSession, removeSession, recentSessions, computeStats,
+  isoDateInput, uid, getPlan, setPlan,
+  sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities,
+} from './store.js';
+import { extractPdfLayout } from './pdf.js';
+import { parseTestOnGo } from './timetable.js';
+import {
+  blockAt, nextBlock, planSummary, blocksFromSessions,
+} from './plan.js';
+import {
+  mountPlanner, renderPlanner, refreshPlanner, plannerDate, setPlannerDate,
+  importIntoPlan,
+} from './planner.js';
+import {
+  clamp, pad2, dateKey, shiftKey, startOfDayKey, minutesOfDay, clockLabel,
+} from './util.js';
+import { applyTheme, readTheme } from './theme.js';
+
+/* ═══════════════════════════════════════════════════════════
+   Constants
+   ═══════════════════════════════════════════════════════════ */
+
+const RING_C = 741.42;          // 2πr for r=118
+const RING_R = 118;
+const RING_CX = 130;
+const RING_CY = 130;
+
+const APP_VERSION = '1.0.0';    // keep in step with sw.js VERSION
+
+const QUICK_DURATIONS = [5, 15, 25, 30, 45, 50, 60, 90];
+
+const RUNTIME_KEY = 'cadence.runtime.v1';
+
+/* ═══════════════════════════════════════════════════════════
+   DOM
+   ═══════════════════════════════════════════════════════════ */
+
+const $ = (id) => document.getElementById(id);
+
+const el = {
+  body: document.body,
+  dial: $('dial'),
+  ringProgress: $('ringProgress'),
+  ringHead: $('ringHead'),
+  timeDisplay: $('timeDisplay'),
+  timeLead: $('timeLead'),
+  timeSep: $('timeSep'),
+  timeTail: $('timeTail'),
+  timeFrac: $('timeFrac'),
+  metaLabel: $('metaLabel'),
+  metaText: $('metaText'),
+  segmented: document.querySelector('.segmented'),
+  tabs: [...document.querySelectorAll('.segmented__btn')],
+  primaryBtn: $('primaryBtn'),
+  primaryIcon: $('primaryIcon'),
+  primaryLabel: $('primaryLabel'),
+  stopBtn: $('stopBtn'),
+  resetBtn: $('resetBtn'),
+  todayLine: $('todayLine'),
+  planLine: $('planLine'),
+
+  viewSwitch: $('viewSwitch'),
+  viewButtons: [...document.querySelectorAll('.viewswitch__btn')],
+  clockView: $('viewClock'),
+  planView: $('viewPlan'),
+
+  settingsBtn: $('settingsBtn'),
+  settingsPanel: $('settingsPanel'),
+  closeSettings: $('closeSettings'),
+  scrim: $('scrim'),
+  drawerTabs: [...document.querySelectorAll('.drawer__tab')],
+  panels: [...document.querySelectorAll('.panel')],
+
+  durationPop: $('durationPop'),
+  durationPresets: $('durationPresets'),
+  durationInput: $('durationInput'),
+  durationApply: $('durationApply'),
+  durationClose: $('durationClose'),
+
+  presetChips: $('presetChips'),
+  addPreset: $('addPreset'),
+
+  statGrid: $('statGrid'),
+  weekChart: $('weekChart'),
+  sessionList: $('sessionList'),
+  sessionCount: $('sessionCount'),
+
+  addDialog: $('addDialog'),
+  addForm: $('addForm'),
+  addHours: $('addHours'),
+  addMinutes: $('addMinutes'),
+  addLabel: $('addLabel'),
+  addDate: $('addDate'),
+  addSubmit: $('addSubmit'),
+  addCancel: $('addCancel'),
+  addClose: $('addClose'),
+
+  // plan — drawer panel
+  ttDrop: $('ttDrop'),
+  ttPick: $('ttPick'),
+  ttFile: $('ttFile'),
+  ttBanner: $('ttBanner'),
+  ttLoaded: $('ttLoaded'),
+  ttDate: $('ttDate'),
+  ttSummary: $('ttSummary'),
+  ttTasks: $('ttTasks'),
+  ttList: $('ttList'),
+  ttCount: $('ttCount'),
+  ttClear: $('ttClear'),
+  ttActivities: $('ttActivities'),
+
+  // plan — workspace
+  planTitle: $('planTitle'),
+  planSub: $('planSub'),
+  planPrev: $('planPrev'),
+  planNext: $('planNext'),
+  planToday: $('planToday'),
+  planWeek: $('planWeek'),
+  planGrid: $('planGrid'),
+  planTracks: [...document.querySelectorAll('.grid__track')],
+  planGutters: [...document.querySelectorAll('.grid__gutter')],
+  planBlocks: $('planBlocks'),
+  planTasks: $('planTasks'),
+  planTaskCount: $('planTaskCount'),
+  planTaskForm: $('planTaskForm'),
+  planTaskInput: $('planTaskInput'),
+  planTaskStage: $('planTaskStage'),
+  planPicker: $('planPicker'),
+  planAddActivity: $('planAddActivity'),
+  planClear: $('planClear'),
+  planCopy: $('planCopy'),
+  planImport: $('planImport'),
+  planImportFile: $('planImportFile'),
+
+  copyDialog: $('copyDialog'),
+  copyClose: $('copyClose'),
+  copyOptions: $('copyOptions'),
+
+  toast: $('toast'),
+};
+
+/* ═══════════════════════════════════════════════════════════
+   State
+   ═══════════════════════════════════════════════════════════ */
+
+let state = load();
+
+const T = {
+  mode: 'stopwatch',
+  status: 'idle',          // idle | running | paused
+  kind: 'focus',           // focus | break
+  startedAt: 0,
+  accumulated: 0,
+  target: 25 * 60000,
+  subject: '',             // label of the plan block being run
+  sessionId: '',           // id of the plan block being run
+};
+
+let stats = computeStats(state);
+let rafId = null;
+let tickId = null;
+let lastFrameAt = 0;
+let timeoutId = null;
+let wakeLock = null;
+let deferredInstall = null;
+let lastTimeText = '';
+let lastTitle = '';
+let lastRingVisible = null;
+let lastTodayText = '';
+let lastTickSecond = -1;
+let toastTimer = null;
+let lastFocusTarget = null;
+let planTimerId = null;
+let drawerHideTimer = null;
+
+/* ═══════════════════════════════════════════════════════════
+   Small helpers
+   ═══════════════════════════════════════════════════════════ */
+
+function formatTime(ms, showMs) {
+  const total = Math.max(0, ms);
+  const totalSec = Math.floor(total / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const base = h > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${pad2(m)}:${pad2(s)}`;
+  if (!showMs) return base;
+  const cs = Math.floor((total % 1000) / 10);
+  return `${base}.${pad2(cs)}`;
+}
+
+/**
+ * Splits a duration for the two-tone readout: the minutes carry the visual
+ * weight, the seconds recede. Digits are never animated — they snap.
+ */
+function formatTimeParts(ms, showMs) {
+  const total = Math.max(0, ms);
+  const totalSec = Math.floor(total / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return {
+    lead: h > 0 ? `${h}:${pad2(m)}` : pad2(m),
+    sep: ':',
+    tail: pad2(s),
+    frac: showMs ? `.${pad2(Math.floor((total % 1000) / 10))}` : '',
+  };
+}
+
+function formatDuration(ms) {
+  const total = Math.round(ms / 1000);
+  // Below a minute, seconds say more than a rounded “0m”.
+  if (total < 60) return `${total}s`;
+  const h = Math.floor(total / 3600);
+  const m = Math.round((total - h * 3600) / 60);
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+
+function formatClock(ts) {
+  const d = new Date(ts);
+  const h24 = d.getHours();
+  if (state.settings.clock24) return `${pad2(h24)}:${pad2(d.getMinutes())}`;
+  const h = h24 % 12 || 12;
+  return `${h}:${pad2(d.getMinutes())} ${h24 < 12 ? 'AM' : 'PM'}`;
+}
+
+function formatDay(ts) {
+  const now = new Date();
+  const d = new Date(ts);
+  const sameDay = (a, b) => a.toDateString() === b.toDateString();
+  if (sameDay(d, now)) return 'Today';
+  const y = new Date(now.getTime() - 86400000);
+  if (sameDay(d, y)) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Appearance
+   ═══════════════════════════════════════════════════════════ */
+
+function applyAppearance() {
+  const s = state.settings;
+  el.body.dataset.reduceMotion = s.reduceMotion ? 'true' : 'false';
+  el.body.dataset.focus = s.focusMode ? 'true' : 'false';
+  el.dial.dataset.glow = s.ringGlow ? 'on' : 'off';
+  el.timeDisplay.dataset.ms = s.showMillis ? 'true' : 'false';
+  applyTheme(s.theme);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Timer engine
+   ═══════════════════════════════════════════════════════════ */
+
+function elapsedMs() {
+  return T.accumulated + (T.status === 'running' ? Math.max(0, Date.now() - T.startedAt) : 0);
+}
+
+function persistRuntime() {
+  try {
+    localStorage.setItem(RUNTIME_KEY, JSON.stringify({
+      mode: T.mode, status: T.status, kind: T.kind,
+      startedAt: T.startedAt, accumulated: T.accumulated, target: T.target,
+      subject: T.subject, sessionId: T.sessionId,
+    }));
+  } catch { /* private mode */ }
+}
+
+function clearRuntime() {
+  try { localStorage.removeItem(RUNTIME_KEY); } catch { /* ignore */ }
+}
+
+function restoreRuntime() {
+  let raw = null;
+  try { raw = localStorage.getItem(RUNTIME_KEY); } catch { return; }
+  if (!raw) return;
+  let r = null;
+  try { r = JSON.parse(raw); } catch { clearRuntime(); return; }
+  if (!r || typeof r !== 'object') { clearRuntime(); return; }
+
+  T.mode = r.mode === 'timer' ? 'timer' : 'stopwatch';
+  T.kind = r.kind === 'break' ? 'break' : 'focus';
+  T.target = Number(r.target) || state.settings.focusMin * 60000;
+  T.accumulated = Number(r.accumulated) || 0;
+  T.startedAt = Number(r.startedAt) || 0;
+  T.status = r.status === 'running' ? 'running' : (r.status === 'paused' ? 'paused' : 'idle');
+  T.subject = typeof r.subject === 'string' ? r.subject.slice(0, 60) : '';
+  T.sessionId = typeof r.sessionId === 'string' ? r.sessionId : '';
+
+  if (T.status === 'running') {
+    const elapsed = elapsedMs();
+    if (T.mode === 'timer' && elapsed >= T.target) {
+      // Completed while the app was closed — record it faithfully.
+      const kind = T.kind;
+      const subject = T.subject;
+      const sessionId = T.sessionId;
+      const startedAt = T.startedAt || Date.now() - T.accumulated;
+      const planned = plannedSession(sessionId);
+      T.status = 'idle'; T.accumulated = 0; T.startedAt = 0;
+      clearRuntime();
+      finishSession(kind, T.target, { silent: true, noChain: true, subject, sessionId, start: startedAt });
+      showToast(subject
+        ? `${subject} session ended, ${formatClock(planned ? planned.end : Date.now())}`
+        : 'A session completed while you were away');
+    } else {
+      scheduleTimeout();
+    }
+  }
+  syncModeUI();
+  updateControls();
+}
+
+function scheduleTimeout() {
+  clearTimeout(timeoutId);
+  if (T.status !== 'running' || T.mode !== 'timer') return;
+  const remaining = T.target - elapsedMs();
+  const fire = () => {
+    if (T.status !== 'running' || T.mode !== 'timer') return;
+    finishSession(T.kind, T.target);
+  };
+  // A target that is already used up must still end the session — otherwise
+  // the clock would sit at 00:00 forever.
+  if (remaining <= 0) { timeoutId = setTimeout(fire, 0); return; }
+  timeoutId = setTimeout(fire, remaining);
+}
+
+function start(opts = {}) {
+  if (T.status === 'running') return;
+  if (opts.target) {
+    T.target = opts.target;
+    T.accumulated = 0;
+  } else if (T.mode === 'timer' && T.status === 'idle') {
+    T.target = (T.kind === 'break'
+      ? (state.counters.break % state.settings.longBreakEvery === 0 && state.counters.focus > 0
+          ? state.settings.longBreakMin : state.settings.breakMin)
+      : state.settings.focusMin) * 60000;
+    T.accumulated = 0;
+  }
+  T.startedAt = Date.now();
+  T.status = 'running';
+  sound.unlock();
+  sound.play('start');
+  persistRuntime();
+  scheduleTimeout();
+  requestWakeLock();
+  startLoop();
+  updateControls();
+}
+
+function pause() {
+  if (T.status !== 'running') return;
+  T.accumulated = elapsedMs();
+  T.startedAt = 0;
+  T.status = 'paused';
+  clearTimeout(timeoutId);
+  sound.play('pause');
+  persistRuntime();
+  releaseWakeLock();
+  stopLoop();
+  render();
+  updateControls();
+}
+
+function reset() {
+  const wasRunning = T.status === 'running';
+  T.status = 'idle';
+  T.accumulated = 0;
+  T.startedAt = 0;
+  T.subject = '';
+  T.sessionId = '';
+  // Resetting a break puts the timer back on a focus session.
+  T.kind = 'focus';
+  clearTimeout(timeoutId);
+  clearRuntime();
+  releaseWakeLock();
+  stopLoop();
+  if (wasRunning) sound.play('reset');
+  render();
+  updateControls();
+}
+
+function stop() {
+  const ms = elapsedMs();
+  const kind = T.kind;
+  const subject = T.subject;
+  const sessionId = T.sessionId;
+  // The run really began when the clock began — not when the plan said it
+  // would. A session that was joined late or stopped early is logged with
+  // its own span so the record never claims time that was not spent.
+  const startedAt = (T.status === 'running' ? T.startedAt : Date.now() - T.accumulated) || Date.now();
+  T.status = 'idle';
+  T.accumulated = 0;
+  T.startedAt = 0;
+  T.subject = '';
+  T.sessionId = '';
+  clearTimeout(timeoutId);
+  clearRuntime();
+  releaseWakeLock();
+  stopLoop();
+  if (ms >= 1000) {
+    finishSession(kind, ms, {
+      source: T.mode === 'timer' ? 'timer' : 'stopwatch',
+      manual: true,
+      subject,
+      sessionId,
+      start: startedAt,
+    });
+  } else {
+    sound.play('reset');
+  }
+  render();
+  updateControls();
+}
+
+/**
+ * Record a finished session and decide what happens next.
+ *
+ * `opts.subject` / `opts.sessionId` carry the plan block that was running, so
+ * the log and the announcement speak with the right name.
+ */
+function finishSession(kind, durationMs, opts = {}) {
+  const s = state.settings;
+  const isBreak = kind === 'break';
+  const subject = (opts.subject ?? T.subject ?? '').trim();
+  const sessionId = opts.sessionId ?? T.sessionId ?? '';
+  const planned = plannedSession(sessionId);
+  // A plan block that ran to the end counts for its planned length, even when
+  // the app was opened halfway through.
+  const loggedMs = (!opts.manual && planned) ? planned.durationMs : durationMs;
+  // The start of the record is the moment the work actually began. Only a
+  // session that ran its full plan is anchored to the planned start — a
+  // session that was joined late or stopped early keeps its real span, so the
+  // log never claims time that was not spent.
+  const loggedStart = opts.manual
+    ? (opts.start != null ? opts.start : Date.now())
+    : (planned ? planned.start : (opts.start != null ? opts.start : Date.now()));
+
+  // Breaks are rest, not study — they stay out of the log and the stats.
+  if (!isBreak) {
+    addSession(state, {
+      durationMs: loggedMs,
+      mode: opts.manual ? T.mode : 'timer',
+      label: subject,
+      source: opts.manual ? (T.mode === 'timer' ? 'timer' : 'stopwatch') : 'timer',
+      start: loggedStart,
+    });
+  }
+
+  state.counters[kind] = (state.counters[kind] || 0) + 1;
+  if (sessionId) markBlockDone(sessionId);
+  save(state);
+  stats = computeStats(state);
+  renderToday();
+  renderStats();
+  renderPlanPanel();
+
+  if (!opts.silent) {
+    if (opts.manual) {
+      // Stopped by hand — the session did not reach its planned end, so it is
+      // never announced as a completion.
+      sound.play('reset');
+      showToast(subject
+        ? `${subject} stopped · ${formatDuration(loggedMs)}`
+        : `Stopped · ${formatDuration(loggedMs)}`);
+    } else if (subject) {
+      announceBlockEnd(subject, loggedMs, planned ? planned.end : Date.now());
+    } else {
+      if (s.soundOnDone) sound.play('complete');
+      notify(
+        isBreak ? 'Break finished' : 'Focus session complete',
+        isBreak ? 'Time to get back to it.' : `${formatDuration(loggedMs)} of focused work logged.`
+      );
+    }
+  }
+
+  // Chain to the next phase if the user asked for it. A plan block never
+  // chains — the plan itself decides what runs next.
+  const wantBreak = isBreak ? s.autoFocus : s.autoBreak;
+  if (!opts.manual && !opts.noChain && !sessionId && wantBreak) {
+    if (isBreak) {
+      T.kind = 'focus';
+      T.target = s.focusMin * 60000;
+    } else {
+      const long = state.counters.focus % Math.max(1, s.longBreakEvery) === 0;
+      T.kind = 'break';
+      T.target = (long ? s.longBreakMin : s.breakMin) * 60000;
+    }
+    T.accumulated = 0;
+    T.startedAt = Date.now();
+    T.status = 'running';
+    persistRuntime();
+    scheduleTimeout();
+    requestWakeLock();
+    startLoop();
+    showToast(isBreak ? 'Break over — back to focus' : (T.kind === 'break' ? 'Nice work — break time' : 'Focus session complete'));
+  } else {
+    T.status = 'idle';
+    T.accumulated = 0;
+    T.startedAt = 0;
+    T.subject = '';
+    T.sessionId = '';
+    // The next session that is started by hand is a focus session — a break
+    // that just ended must not turn the next start into another break.
+    T.kind = 'focus';
+    clearRuntime();
+    if (!opts.manual && !opts.silent && !subject) showToast(isBreak ? 'Break complete' : 'Session complete');
+  }
+
+  updateControls();
+  render();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Loop + rendering
+   ═══════════════════════════════════════════════════════════ */
+
+/**
+ * The render loop has two drivers.
+ *
+ * `requestAnimationFrame` is the primary one — it gives the progress ring a
+ * smooth, frame-locked sweep. But rAF is not guaranteed to run: it is starved
+ * in occluded windows, in headless browsers, and on some mobile builds. If
+ * that happened the readout would freeze while the clock kept running, which
+ * looks like a broken timer.
+ *
+ * So a plain interval acts as a watchdog: it only paints when rAF has gone
+ * quiet. Every value is derived from absolute timestamps, so a throttled
+ * interval (background tabs are clamped to 1/s, sometimes 1/min) can never
+ * introduce drift — it only affects how promptly the screen refreshes.
+ */
+function loopFrame() {
+  rafId = null;
+  if (T.status !== 'running') return;
+  lastFrameAt = performance.now();
+  render();
+  rafId = requestAnimationFrame(loopFrame);
+}
+
+function startLoop() {
+  // The two drivers are independent. Each one is (re)started only when it is
+  // actually missing, so a chain that was interrupted somewhere else can never
+  // leave the readout frozen.
+  if (!tickId) {
+    tickId = setInterval(() => {
+      if (T.status !== 'running') return;
+      if (performance.now() - lastFrameAt < 400) return; // rAF is healthy
+      render();
+    }, 250);
+  }
+  if (!rafId) rafId = requestAnimationFrame(loopFrame);
+}
+
+function stopLoop() {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  if (tickId) { clearInterval(tickId); tickId = null; }
+}
+
+function render() {
+  const s = state.settings;
+  const ms = elapsedMs();
+
+  let shown = ms;
+  let progress = 0;
+  let ringVisible = true;
+
+  if (T.mode === 'timer') {
+    shown = Math.max(0, T.target - ms);
+    progress = T.target > 0 ? clamp(ms / T.target, 0, 1) : 0;
+  } else {
+    progress = stats.goalMs > 0 ? clamp(stats.todayMs / stats.goalMs, 0, 1) : 0;
+    ringVisible = stats.goalMs > 0;
+  }
+
+  const text = formatTime(shown, s.showMillis);
+  if (text !== lastTimeText) {
+    lastTimeText = text;
+    const p = formatTimeParts(shown, s.showMillis);
+    el.timeLead.textContent = p.lead;
+    el.timeSep.textContent = p.sep;
+    el.timeTail.textContent = p.tail;
+    el.timeFrac.textContent = p.frac;
+  }
+  // The title follows the clock *and* the run state — a stopped stopwatch must
+  // give the static title back, even when the digits did not change.
+  const title = T.status === 'running' ? `${text} · Cadence` : 'Cadence — plan the day, run the day';
+  if (title !== lastTitle) {
+    lastTitle = title;
+    document.title = title;
+  }
+
+  // Ring
+  el.ringProgress.style.strokeDashoffset = String(RING_C * (1 - progress));
+  if (lastRingVisible !== ringVisible) {
+    lastRingVisible = ringVisible;
+    el.ringProgress.style.opacity = ringVisible ? '1' : '0';
+    el.ringProgress.parentElement.querySelector('.dial__track').style.opacity = ringVisible ? '1' : '0';
+  }
+
+  const angle = progress * Math.PI * 2;
+  const hx = RING_CX + RING_R * Math.sin(angle);
+  const hy = RING_CY - RING_R * Math.cos(angle);
+  el.ringHead.setAttribute('cx', hx.toFixed(2));
+  el.ringHead.setAttribute('cy', hy.toFixed(2));
+  el.ringHead.dataset.show = progress > 0.004 && progress < 0.999 ? 'true' : 'false';
+
+  // Meta
+  const mins = Math.round(T.target / 60000);
+  if (T.mode === 'timer') {
+    // A plan block owns its own length — the duration popover must not fight
+    // it, so the label is not interactive while one is running.
+    const interactive = !T.sessionId;
+    el.metaText.textContent = T.subject
+      || (T.kind === 'break' ? `${mins} min break` : `${mins} min focus`);
+    if (el.metaLabel.dataset.interactive !== (interactive ? 'true' : 'false')) {
+      el.metaLabel.dataset.interactive = interactive ? 'true' : 'false';
+      el.metaLabel.disabled = !interactive;
+    }
+  } else {
+    if (stats.goalMs > 0) {
+      el.metaText.textContent = `${formatDuration(stats.todayMs)} / ${formatDuration(stats.goalMs)}`;
+    } else {
+      el.metaText.textContent = 'Stopwatch';
+    }
+    if (el.metaLabel.dataset.interactive !== 'false') {
+      el.metaLabel.dataset.interactive = 'false';
+      el.metaLabel.disabled = true;
+    }
+  }
+
+  // Countdown ticks in the final seconds
+  if (T.mode === 'timer' && T.status === 'running' && shown > 0 && shown <= 5000 && s.tickSound && s.soundEnabled) {
+    const sec = Math.ceil(shown / 1000);
+    if (sec !== lastTickSecond) {
+      lastTickSecond = sec;
+      sound.play('tick');
+    }
+  } else {
+    lastTickSecond = -1;
+  }
+
+  el.dial.dataset.running = T.status === 'running' ? 'true' : 'false';
+  renderToday();
+}
+
+function updateControls() {
+  const running = T.status === 'running';
+  const paused = T.status === 'paused';
+
+  el.primaryLabel.textContent = running ? 'Pause' : (paused ? 'Resume' : 'Start');
+  el.primaryBtn.dataset.variant = running ? 'pause' : 'start';
+  el.primaryIcon.innerHTML = running
+    ? '<path d="M8.5 5.5h3.2v13H8.5zM12.9 5.5h3.2v13h-3.2z" fill="currentColor"/>'
+    : '<path d="M8 5.5v13l11-6.5z" fill="currentColor"/>';
+  el.stopBtn.hidden = !running && !paused;
+  el.resetBtn.textContent = 'Reset';
+}
+
+function renderToday() {
+  const parts = [];
+  if (T.status === 'running' || T.status === 'paused') {
+    parts.push(`${T.mode === 'timer' ? 'Session' : 'Stopwatch'} ${formatTime(elapsedMs(), false)}`);
+  }
+  if (stats.todayCount > 0) {
+    parts.push(`Today ${formatDuration(stats.todayMs)}`);
+    parts.push(`${stats.todayCount} session${stats.todayCount === 1 ? '' : 's'}`);
+  } else if (!parts.length) {
+    parts.push('Ready when you are');
+  }
+  const text = parts.join(' · ');
+  if (text !== lastTodayText) {
+    lastTodayText = text;
+    el.todayLine.textContent = text;
+  }
+  renderPlanLine();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Views
+   ═══════════════════════════════════════════════════════════ */
+
+function setView(view) {
+  const next = view === 'plan' ? 'plan' : 'clock';
+  state.settings.view = next;
+  save(state);
+  const isPlan = next === 'plan';
+  el.clockView.hidden = isPlan;
+  el.planView.hidden = !isPlan;
+  el.viewButtons.forEach(b => {
+    const on = b.dataset.view === next;
+    b.setAttribute('aria-pressed', String(on));
+  });
+  if (isPlan) renderPlanner();
+  else render();
+  renderPlanLine();
+}
+
+function currentView() {
+  return state.settings.view === 'plan' ? 'plan' : 'clock';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Mode switching
+   ═══════════════════════════════════════════════════════════ */
+
+function setMode(mode) {
+  const next = mode === 'timer' ? 'timer' : 'stopwatch';
+  if (T.status === 'running' || T.status === 'paused') {
+    // A running session keeps its own length — switching the mode only
+    // changes what the *next* start will do.
+    T.mode = next;
+    state.settings.mode = next;
+    save(state);
+    syncModeUI();
+    render();
+    return;
+  }
+  T.mode = next;
+  state.settings.mode = next;
+  if (next === 'timer') T.target = state.settings.focusMin * 60000;
+  save(state);
+  syncModeUI();
+  render();
+}
+
+function syncModeUI() {
+  el.segmented.dataset.mode = T.mode;
+  el.tabs.forEach(t => t.setAttribute('aria-pressed', String(t.dataset.mode === T.mode)));
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Wake lock + notifications
+   ═══════════════════════════════════════════════════════════ */
+
+async function requestWakeLock() {
+  if (!state.settings.wakeLock) return;
+  if (!('wakeLock' in navigator)) return;
+  if (T.status !== 'running') return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+  } catch {
+    wakeLock = null;
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) {
+    try { wakeLock.release(); } catch { /* ignore */ }
+    wakeLock = null;
+  }
+}
+
+async function notify(title, body, tag = 'cadence-session') {
+  if (!state.settings.notifications) return;
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) {
+        await reg.showNotification(title, { body, tag, icon: './assets/icons/icon-192.png', badge: './assets/icons/icon-192.png' });
+        return;
+      }
+    }
+    new Notification(title, { body, tag, icon: './assets/icons/icon-192.png' });
+  } catch {
+    /* notifications are a nicety, never a failure */
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   The plan — the thing both halves share
+   ═══════════════════════════════════════════════════════════ */
+
+function planFor(date) {
+  return getPlan(state, date);
+}
+
+function todayPlan() {
+  return planFor(dateKey(Date.now()));
+}
+
+/** The plan block with this id, anywhere in the store. */
+function plannedSession(id) {
+  if (!id) return null;
+  for (const [date, plan] of Object.entries(state.plans)) {
+    const b = plan.blocks.find(x => x.id === id);
+    if (!b) continue;
+    const dayStart = startOfDayKey(date);
+    return {
+      id: b.id,
+      subject: b.label,
+      start: dayStart + b.startMin * 60000,
+      end: dayStart + b.endMin * 60000,
+      durationMs: (b.endMin - b.startMin) * 60000,
+      isBreak: b.kind === 'rest',
+    };
+  }
+  return null;
+}
+
+/** Remember that a block has been dealt with, so it is never run twice. */
+function markBlockDone(id) {
+  for (const plan of Object.values(state.plans)) {
+    if (!plan.blocks.some(b => b.id === id)) continue;
+    plan.done = plan.done || {};
+    plan.done[id] = true;
+    save(state);
+    return;
+  }
+}
+
+/**
+ * Announce the end of a block.
+ *
+ * The wording is the contract with the person studying: which block ended
+ * and when. The duration rides along in the notification body.
+ */
+function announceBlockEnd(subject, durationMs, endTs) {
+  const title = `${subject} session ended`;
+  const clock = formatClock(endTs);
+  if (state.settings.ringOnBlockEnd) {
+    // The sound engine honours the global sound switch by itself.
+    sound.play('complete');
+    notify(title, `Ended ${clock} · ${formatDuration(durationMs)}`, 'cadence-plan');
+  }
+  showToast(`${title}, ${clock}`);
+}
+
+/**
+ * Read a TestOnGo dashboard PDF and turn it into a plan.
+ *
+ * The PDF is parsed entirely on the device — nothing is uploaded anywhere.
+ */
+async function importTimetable(file) {
+  if (!file) return;
+  const banner = el.ttBanner;
+  banner.hidden = false;
+  banner.dataset.tone = 'warn';
+  banner.textContent = 'Reading the PDF…';
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const pages = await extractPdfLayout(buffer);
+    const tt = parseTestOnGo(pages);
+    if (!tt) throw new Error('no-schedule-found');
+
+    const date = tt.date || dateKey(Date.now());
+    const blocks = importIntoPlan(date, tt.sessions, { label: tt.dayLabel, subjects: tt.subjects });
+
+    banner.hidden = true;
+    setPlannerDate(date);
+    renderPlanPanel();
+    planTick();
+    showToast(`Imported ${blocks} blocks · ${tt.dayLabel}`);
+  } catch (err) {
+    console.warn('[Cadence] timetable import failed', err);
+    banner.hidden = false;
+    banner.dataset.tone = 'warn';
+    banner.textContent = 'That file does not look like a TestOnGo dashboard — no schedule found.';
+  }
+}
+
+/**
+ * The autopilot.
+ *
+ * It wakes on a slow heartbeat and whenever the app comes back to the
+ * foreground, and it does three things:
+ *
+ *   1. starts the clock for the block that is running right now
+ *   2. notices blocks that ended while the app was not watching, so they
+ *      still land in the log
+ *   3. keeps the panel and the home line in sync
+ *
+ * Everything it decides is derived from absolute timestamps, so a throttled
+ * or delayed heartbeat can never shift a block by more than the heartbeat
+ * itself.
+ */
+function planTick() {
+  const now = Date.now();
+  const date = dateKey(now);
+  const plan = planFor(date);
+  const mins = minutesOfDay(now);
+
+  if (plan.blocks.length) {
+    // 1 — run whatever is running now.
+    const current = blockAt(plan.blocks, mins);
+    if (current && state.settings.autoPlan) {
+      // A block that has already been logged is finished — never run it twice.
+      const finished = !!(plan.done && plan.done[current.id]);
+      if (!finished && T.status === 'idle' && T.sessionId !== current.id) {
+        startPlanBlock(current, { auto: true, date });
+      }
+    }
+
+    // 2 — pick up blocks that ended without the app watching.
+    plan.done = plan.done || {};
+    let changed = false;
+    for (const b of plan.blocks) {
+      const endTs = startOfDayKey(date) + b.endMin * 60000;
+      if (now < endTs) continue;
+      if (plan.done[b.id]) continue;
+      plan.done[b.id] = true;
+      changed = true;
+      if (T.sessionId === b.id) continue;         // the clock speaks for itself
+      logMissedBlock(b, date);
+    }
+    if (changed) save(state);
+  }
+
+  // 3 — paint.
+  renderPlanPanel();
+  renderPlanLine();
+  refreshPlanner();
+}
+
+/**
+ * A block that ended while the app was closed. It still counts — the plan is
+ * the plan, and the plan was carried out — but there is nothing to ring
+ * about, so it only leaves a quiet note.
+ */
+function logMissedBlock(block, date) {
+  const durationMs = (block.endMin - block.startMin) * 60000;
+  if (block.kind !== 'rest' && durationMs >= 60000) {
+    addSession(state, {
+      durationMs,
+      mode: 'timer',
+      label: block.label,
+      source: 'timer',
+      start: startOfDayKey(date) + block.startMin * 60000,
+    });
+    stats = computeStats(state);
+    renderStats();
+    renderToday();
+  }
+  showToast(`${block.label} session ended, ${clockLabel(block.endMin)}`);
+}
+
+/**
+ * Run a block on the clock.
+ *
+ * Started by hand it runs for its full length; started by the autopilot it
+ * joins the block where it already is.
+ */
+function startPlanBlock(block, opts = {}) {
+  const date = opts.date || plannerDate() || dateKey(Date.now());
+  const plan = planFor(date);
+  const full = (block.endMin - block.startMin) * 60000;
+  if (!full) return;
+
+  closePopover();
+  if (currentView() !== 'clock') setView('clock');
+
+  if (T.mode !== 'timer') {
+    T.mode = 'timer';
+    state.settings.mode = 'timer';
+    syncModeUI();
+  }
+
+  let remaining = full;
+  if (opts.auto) {
+    const now = Date.now();
+    const endTs = startOfDayKey(date) + block.endMin * 60000;
+    remaining = Math.max(1000, endTs - now);
+  }
+
+  T.kind = block.kind === 'rest' ? 'break' : 'focus';
+  T.subject = block.label;
+  T.sessionId = block.id;
+  T.accumulated = 0;
+  T.status = 'idle';
+
+  start({ target: remaining });
+  showToast(`${block.label} started`);
+}
+
+/* ── Plan panel (drawer) ─────────────────────────────────── */
+
+function renderPlanPanel() {
+  const plan = todayPlan();
+  const summary = planSummary(plan);
+  const has = plan.blocks.length > 0;
+  el.ttLoaded.hidden = !has;
+  if (!has) {
+    el.ttList.innerHTML = '';
+    el.ttTasks.hidden = true;
+    el.ttTasks.textContent = '';
+    el.ttCount.textContent = '';
+    el.ttDate.textContent = '';
+    el.ttSummary.textContent = '';
+    renderActivityList();
+    return;
+  }
+
+  const now = Date.now();
+  const mins = minutesOfDay(now);
+  el.ttDate.textContent = plan.imported?.label || 'Your plan for today';
+  el.ttCount.textContent = `· ${plan.blocks.length}`;
+  el.ttSummary.textContent = `${formatDuration(summary.studyMin * 60000)} study`
+    + ` · ${formatDuration(summary.freeMin * 60000)} free`
+    + ` · ${summary.tasksDone}/${summary.tasks} tasks`;
+
+  const tasks = Array.isArray(plan.imported?.subjects) ? plan.imported.subjects : [];
+  el.ttTasks.hidden = tasks.length === 0;
+  el.ttTasks.textContent = tasks.length
+    ? `Tasks · ${tasks.map(t => `${t.name} ${t.done}/${t.total}`).join(' · ')}`
+    : '';
+
+  el.ttList.innerHTML = '';
+  for (const b of plan.blocks) {
+    const phase = mins >= b.endMin ? 'done' : (mins >= b.startMin ? 'active' : 'upcoming');
+    const row = document.createElement('div');
+    row.className = 'tt-row';
+    row.dataset.phase = phase;
+
+    const time = document.createElement('span');
+    time.className = 'tt-row__time';
+    time.textContent = `${clockLabel(b.startMin)} – ${clockLabel(b.endMin)}`;
+
+    const subject = document.createElement('span');
+    subject.className = 'tt-row__subject';
+    subject.textContent = b.label;
+
+    const dur = document.createElement('span');
+    dur.className = 'tt-row__dur';
+    dur.textContent = formatDuration((b.endMin - b.startMin) * 60000);
+
+    row.append(time, subject, dur);
+    el.ttList.appendChild(row);
+  }
+  void now;
+  renderActivityList();
+}
+
+/** The user's own activities, with a way to remove them. */
+function renderActivityList() {
+  const list = el.ttActivities;
+  if (!list) return;
+  list.innerHTML = '';
+  const custom = state.activities || [];
+  if (!custom.length) {
+    list.innerHTML = '<p class="hint">Only the built-in activities are in use. '
+      + 'Add your own in the planner.</p>';
+    return;
+  }
+  for (const a of custom) {
+    const row = document.createElement('div');
+    row.className = 'actrow';
+    const name = document.createElement('span');
+    name.className = 'actrow__name';
+    name.textContent = a.label;
+    const kind = document.createElement('span');
+    kind.className = 'actrow__kind';
+    kind.textContent = a.kind;
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'icon-btn icon-btn--sm';
+    del.setAttribute('aria-label', `Remove ${a.label}`);
+    del.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" '
+      + 'stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    del.addEventListener('click', () => {
+      state.activities = state.activities.filter(x => x.key !== a.key);
+      save(state);
+      renderActivityList();
+      refreshPlanner();
+      showToast(`Removed "${a.label}"`);
+    });
+    row.append(name, kind, del);
+    list.appendChild(row);
+  }
+}
+
+/** A single quiet line on the clock screen while a plan exists. */
+function renderPlanLine() {
+  const now = Date.now();
+  const plan = planFor(dateKey(now));
+  const mins = minutesOfDay(now);
+  const cur = blockAt(plan.blocks, mins);
+  const next = nextBlock(plan.blocks, mins);
+
+  let text = '';
+  if (cur) text = `${cur.label} · until ${clockLabel(cur.endMin)}`;
+  else if (next) text = `Next: ${next.label} at ${clockLabel(next.startMin)}`;
+  else if (plan.blocks.length) text = 'Plan complete';
+
+  // This runs on every frame — only touch the DOM when the line really changed.
+  if (!text) {
+    if (!el.planLine.hidden) el.planLine.hidden = true;
+    return;
+  }
+  if (el.planLine.hidden || el.planLine.textContent !== text) {
+    el.planLine.hidden = false;
+    el.planLine.textContent = text;
+  }
+}
+
+function clearTodayPlan() {
+  const date = dateKey(Date.now());
+  if (!planFor(date).blocks.length) {
+    showToast('Nothing planned for today');
+    return;
+  }
+  if (!window.confirm('Clear today’s plan?')) return;
+  setPlan(state, date, { ...planFor(date), blocks: [], imported: null });
+  renderPlanPanel();
+  renderPlanLine();
+  refreshPlanner();
+  showToast('Today’s plan cleared');
+}
+
+function startPlanLoop() {
+  if (planTimerId) return;
+  planTimerId = setInterval(planTick, 10000);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Settings UI
+   ═══════════════════════════════════════════════════════════ */
+
+function bindToggle(id, key, onChange) {
+  const input = $(id);
+  if (!input) return;
+  input.checked = !!state.settings[key];
+  input.addEventListener('change', () => {
+    state.settings[key] = input.checked;
+    save(state);
+    onChange?.(input.checked);
+  });
+}
+
+function bindNumber(id, key, { min, max, onChange }) {
+  const input = $(id);
+  if (!input) return;
+  input.value = state.settings[key];
+  input.addEventListener('change', () => {
+    let v = parseInt(input.value, 10);
+    if (Number.isNaN(v)) v = DEFAULTS.settings[key];
+    v = clamp(v, min, max);
+    input.value = v;
+    state.settings[key] = v;
+    save(state);
+    onChange?.(v);
+  });
+}
+
+function renderPresetChips() {
+  el.presetChips.innerHTML = '';
+  const all = [...state.settings.presets, ...state.settings.customPresets];
+  all.forEach(p => {
+    const wrap = document.createElement('span');
+    wrap.className = 'chip-wrap';
+
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = p.label;
+    chip.setAttribute('aria-pressed', String(state.settings.focusMin === p.focus && state.settings.breakMin === p.break));
+    chip.addEventListener('click', () => {
+      state.settings.focusMin = p.focus;
+      state.settings.breakMin = p.break;
+      $('setFocus').value = p.focus;
+      $('setBreak').value = p.break;
+      save(state);
+      if (T.mode === 'timer' && T.status === 'idle') { T.target = p.focus * 60000; }
+      renderPresetChips();
+      render();
+      uiClick();
+    });
+
+    if (p.custom) {
+      // A real button, so the preset can also be removed from the keyboard.
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'chip__x';
+      x.textContent = '×';
+      x.title = 'Remove preset';
+      x.setAttribute('aria-label', `Remove preset ${p.label}`);
+      x.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.settings.customPresets = state.settings.customPresets.filter(c => c.id !== p.id);
+        save(state);
+        renderPresetChips();
+      });
+      wrap.append(chip, x);
+    } else {
+      wrap.append(chip);
+    }
+    el.presetChips.appendChild(wrap);
+  });
+}
+
+function renderQuickDurations() {
+  el.durationPresets.innerHTML = '';
+  QUICK_DURATIONS.forEach(m => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = `${m}m`;
+    chip.addEventListener('click', () => {
+      applyDuration(m);
+    });
+    el.durationPresets.appendChild(chip);
+  });
+}
+
+function applyDuration(minutes) {
+  const m = clamp(Math.round(minutes) || 0, 1, 600);
+  const running = T.status === 'running' || T.status === 'paused';
+  // A plan block owns its own length — the popover must not fight it.
+  const ownsTarget = !!T.sessionId;
+  const total = m * 60000;
+
+  if (T.kind === 'break') {
+    state.settings.breakMin = m;
+    $('setBreak').value = m;
+  } else {
+    state.settings.focusMin = m;
+    $('setFocus').value = m;
+  }
+  if (T.mode === 'timer' && !ownsTarget) T.target = total;
+
+  if (running && !ownsTarget) {
+    if (elapsedMs() >= total) {
+      // The new length is already used up — end the run honestly and leave
+      // the timer ready for the new one.
+      stop();
+      T.target = total;
+      T.status = 'idle';
+    } else {
+      // The session keeps running; only its total length changes. Nothing
+      // that was already studied is thrown away.
+      persistRuntime();
+      scheduleTimeout();
+    }
+  } else if (!running) {
+    T.status = 'idle';
+    T.accumulated = 0;
+    T.startedAt = 0;
+    clearRuntime();
+  }
+
+  save(state);
+  renderPresetChips();
+  render();
+  updateControls();
+  closePopover();
+  uiClick();
+}
+
+function bindSettings() {
+  // Timer
+  bindNumber('setFocus', 'focusMin', { min: 1, max: 600, onChange: (v) => { if (T.mode === 'timer' && T.status === 'idle') T.target = v * 60000; renderPresetChips(); render(); } });
+  bindNumber('setBreak', 'breakMin', { min: 1, max: 120, onChange: () => { renderPresetChips(); } });
+  bindNumber('setLongBreak', 'longBreakMin', { min: 1, max: 120 });
+  bindNumber('setInterval', 'longBreakEvery', { min: 2, max: 12 });
+  bindNumber('setGoal', 'dailyGoalMin', { min: 0, max: 960, onChange: () => { stats = computeStats(state); render(); } });
+
+  bindToggle('setAutoBreak', 'autoBreak');
+  bindToggle('setAutoFocus', 'autoFocus');
+  bindToggle('setSoundOnDone', 'soundOnDone');
+
+  // Plan
+  bindToggle('setAutoPlan', 'autoPlan', (on) => {
+    if (on) {
+      if (!todayPlan().blocks.length) {
+        // Nothing to run yet — say so and leave the switch off.
+        el.ttBanner.hidden = false;
+        el.ttBanner.dataset.tone = 'warn';
+        el.ttBanner.textContent = 'Plan your day first, then switch this on.';
+        $('setAutoPlan').checked = false;
+        state.settings.autoPlan = false;
+        save(state);
+        showToast('Plan your day first');
+        return;
+      }
+      planTick();
+    }
+  });
+  bindToggle('setRingOnBlockEnd', 'ringOnBlockEnd');
+
+  el.ttPick.addEventListener('click', (e) => { e.stopPropagation(); el.ttFile.click(); });
+  el.ttDrop.addEventListener('click', () => el.ttFile.click());
+  el.ttDrop.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.ttFile.click(); }
+  });
+  el.ttFile.addEventListener('change', async () => {
+    const file = el.ttFile.files?.[0];
+    el.ttFile.value = '';
+    if (file) await importTimetable(file);
+  });
+
+  ['dragenter', 'dragover'].forEach(type => {
+    el.ttDrop.addEventListener(type, (e) => {
+      e.preventDefault();
+      el.ttDrop.dataset.dragging = 'true';
+    });
+  });
+  ['dragleave', 'drop'].forEach(type => {
+    el.ttDrop.addEventListener(type, (e) => {
+      e.preventDefault();
+      el.ttDrop.dataset.dragging = 'false';
+    });
+  });
+  el.ttDrop.addEventListener('drop', async (e) => {
+    const file = e.dataTransfer?.files?.[0];
+    if (file) await importTimetable(file);
+  });
+
+  el.ttClear.addEventListener('click', clearTodayPlan);
+
+  // Sound
+  bindToggle('setSoundEnabled', 'soundEnabled', (on) => {
+    sound.setEnabled(on);
+    if (on) sound.play('click');
+  });
+  const soundTheme = $('setSoundTheme');
+  soundTheme.value = state.settings.soundTheme;
+  soundTheme.addEventListener('change', () => {
+    state.settings.soundTheme = soundTheme.value;
+    sound.setTheme(soundTheme.value);
+    save(state);
+    sound.play('start');
+  });
+
+  const vol = $('setVolume');
+  vol.value = state.settings.volume;
+  const setVolFill = () => {
+    vol.style.setProperty('--pct', `${vol.value}%`);
+    $('volumeVal').textContent = `${vol.value}%`;
+  };
+  setVolFill();
+  vol.addEventListener('input', () => {
+    state.settings.volume = parseInt(vol.value, 10);
+    sound.setVolume(state.settings.volume / 100);
+    setVolFill();
+  });
+  vol.addEventListener('change', () => save(state));
+
+  bindToggle('setTick', 'tickSound');
+  bindToggle('setUiClicks', 'uiClicks');
+
+  document.querySelectorAll('[data-test]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // A preview must not switch the master sound on behind the user's back.
+      const wasEnabled = sound.enabled;
+      sound.setEnabled(true);
+      sound.play(btn.dataset.test);
+      sound.setEnabled(wasEnabled);
+    });
+  });
+
+  // Display
+  bindToggle('setMillis', 'showMillis', () => { lastTimeText = ''; render(); });
+  bindToggle('setRingGlow', 'ringGlow', () => applyAppearance());
+  bindToggle('setReduceMotion', 'reduceMotion', () => applyAppearance());
+  bindToggle('setClock24', 'clock24', () => {
+    // The clock format is used by the history, the plan and the home line.
+    renderStats();
+    renderPlanPanel();
+    renderPlanLine();
+    renderPlanner();
+    render();
+  });
+  bindToggle('setFocusMode', 'focusMode', () => applyAppearance());
+
+  const theme = $('setTheme');
+  if (theme) {
+    theme.value = state.settings.theme;
+    theme.addEventListener('change', () => {
+      state.settings.theme = theme.value;
+      applyTheme(theme.value);
+      save(state);
+      uiClick();
+    });
+  }
+
+  // System
+  bindToggle('setWakeLock', 'wakeLock', (on) => {
+    if (on) {
+      if (!('wakeLock' in navigator)) {
+        showSystemBanner('This browser cannot keep the screen awake — the timer stays accurate regardless.', 'warn');
+        return;
+      }
+      if (T.status === 'running') requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+  });
+
+  const notif = $('setNotifications');
+  notif.checked = !!state.settings.notifications;
+  notif.addEventListener('change', async () => {
+    if (!notif.checked) {
+      state.settings.notifications = false;
+      save(state);
+      updateNotificationHint();
+      return;
+    }
+    if (!('Notification' in window)) {
+      notif.checked = false;
+      showSystemBanner('Notifications are not supported in this browser.', 'warn');
+      return;
+    }
+    const perm = Notification.permission === 'granted'
+      ? 'granted'
+      : await Notification.requestPermission();
+    if (perm === 'granted') {
+      state.settings.notifications = true;
+      save(state);
+      showSystemBanner('Alerts are on — you will be notified even with the screen off.', 'ok');
+    } else {
+      notif.checked = false;
+      state.settings.notifications = false;
+      save(state);
+      showSystemBanner('Notification permission was declined.', 'warn');
+    }
+    updateNotificationHint();
+  });
+
+  $('resetSettings').addEventListener('click', () => {
+    const keepSessions = state.sessions;
+    const keepPresets = state.settings.customPresets;
+    const keepPlans = state.plans;
+    const keepActivities = state.activities;
+    const keepMode = T.mode;
+    const keepTheme = state.settings.theme;
+    const keepView = state.settings.view;
+    state = structuredClone(DEFAULTS);
+    state.sessions = keepSessions;
+    state.settings.customPresets = keepPresets;
+    state.plans = keepPlans;
+    state.activities = keepActivities;
+    state.settings.mode = keepMode;
+    state.settings.theme = keepTheme;
+    state.settings.view = keepView;
+    state.counters = { focus: 0, break: 0 };
+    saveNow(state);
+    sound.setTheme(state.settings.soundTheme);
+    sound.setVolume(state.settings.volume / 100);
+    sound.setEnabled(state.settings.soundEnabled);
+    applyAppearance();
+    syncModeUI();
+    syncSettingsUI();
+    renderPresetChips();
+    stats = computeStats(state);
+    render();
+    renderStats();
+    renderPlanPanel();
+    refreshPlanner();
+    showToast('Settings restored to defaults');
+  });
+
+  // Data
+  $('exportBtn').addEventListener('click', exportData);
+  $('importBtn').addEventListener('click', () => $('importFile').click());
+  $('importFile').addEventListener('change', importData);
+  $('clearData').addEventListener('click', async () => {
+    const ok = window.confirm('Erase every session, every plan and all settings? This cannot be undone.');
+    if (!ok) return;
+    clearStore();
+    state = structuredClone(DEFAULTS);
+    clearTimeout(timeoutId);
+    stopLoop();
+    releaseWakeLock();
+    clearRuntime();
+    T.status = 'idle'; T.accumulated = 0; T.startedAt = 0;
+    T.kind = 'focus'; T.subject = ''; T.sessionId = '';
+    T.mode = state.settings.mode;
+    T.target = state.settings.focusMin * 60000;
+    sound.setTheme(state.settings.soundTheme);
+    sound.setVolume(state.settings.volume / 100);
+    sound.setEnabled(state.settings.soundEnabled);
+    applyAppearance();
+    syncModeUI();
+    syncSettingsUI();
+    renderPresetChips();
+    stats = computeStats(state);
+    render();
+    renderStats();
+    renderPlanPanel();
+    refreshPlanner();
+    renderToday();
+    showToast('All data erased');
+  });
+}
+
+function syncSettingsUI() {
+  const s = state.settings;
+  $('setFocus').value = s.focusMin;
+  $('setBreak').value = s.breakMin;
+  $('setLongBreak').value = s.longBreakMin;
+  $('setInterval').value = s.longBreakEvery;
+  $('setGoal').value = s.dailyGoalMin;
+  $('setAutoBreak').checked = s.autoBreak;
+  $('setAutoFocus').checked = s.autoFocus;
+  $('setSoundOnDone').checked = s.soundOnDone;
+  $('setSoundEnabled').checked = s.soundEnabled;
+  $('setSoundTheme').value = s.soundTheme;
+  $('setVolume').value = s.volume;
+  $('setVolume').style.setProperty('--pct', `${s.volume}%`);
+  $('volumeVal').textContent = `${s.volume}%`;
+  $('setTick').checked = s.tickSound;
+  $('setUiClicks').checked = s.uiClicks;
+  $('setMillis').checked = s.showMillis;
+  $('setRingGlow').checked = s.ringGlow;
+  $('setReduceMotion').checked = s.reduceMotion;
+  $('setClock24').checked = s.clock24;
+  $('setWakeLock').checked = s.wakeLock;
+  $('setNotifications').checked = s.notifications;
+  $('setFocusMode').checked = s.focusMode;
+  $('setAutoPlan').checked = s.autoPlan;
+  $('setRingOnBlockEnd').checked = s.ringOnBlockEnd;
+  const theme = $('setTheme');
+  if (theme) theme.value = s.theme;
+  updateNotificationHint();
+}
+
+function updateNotificationHint() {
+  const hint = $('notifHint');
+  if (!hint) return;
+  if (!('Notification' in window)) {
+    hint.textContent = 'Not supported in this browser';
+    return;
+  }
+  if (Notification.permission === 'denied') {
+    hint.textContent = 'Blocked in browser settings';
+    return;
+  }
+  hint.textContent = 'Alerts even when the screen is off';
+}
+
+function showSystemBanner(text, tone = 'warn') {
+  const b = $('systemBanner');
+  if (!b) return;
+  b.textContent = text;
+  b.dataset.tone = tone;
+  b.hidden = false;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Stats & history
+   ═══════════════════════════════════════════════════════════ */
+
+function renderStats() {
+  stats = computeStats(state);
+
+  const cards = [
+    { label: 'Today', value: formatDuration(stats.todayMs) },
+    { label: 'This week', value: formatDuration(stats.weekMs) },
+    { label: 'Streak', value: `${stats.streak}d` },
+    { label: 'Sessions', value: String(stats.totalCount) },
+  ];
+  el.statGrid.innerHTML = '';
+  cards.forEach(c => {
+    const d = document.createElement('div');
+    d.className = 'stat';
+    d.innerHTML = `<div class="stat__value"></div><div class="stat__label"></div>`;
+    d.querySelector('.stat__value').textContent = c.value;
+    d.querySelector('.stat__label').textContent = c.label;
+    el.statGrid.appendChild(d);
+  });
+
+  // Week chart
+  el.weekChart.innerHTML = '';
+  const max = Math.max(...stats.last7.map(d => d.ms), 1);
+  stats.last7.forEach(d => {
+    const col = document.createElement('div');
+    col.className = 'chart__col';
+    col.dataset.today = String(d.isToday);
+    col.dataset.empty = String(d.ms === 0);
+    col.title = `${formatDuration(d.ms)}`;
+    const bar = document.createElement('div');
+    bar.className = 'chart__bar';
+    const pct = d.ms === 0 ? 2 : Math.max(8, Math.round((d.ms / max) * 100));
+    bar.style.height = `${pct}%`;
+    const lbl = document.createElement('div');
+    lbl.className = 'chart__label';
+    lbl.textContent = d.label;
+    col.append(bar, lbl);
+    el.weekChart.appendChild(col);
+  });
+
+  // Sessions
+  const list = recentSessions(state, 60);
+  el.sessionCount.textContent = state.sessions.length
+    ? (state.sessions.length > list.length
+        ? `· ${state.sessions.length} · showing last ${list.length}`
+        : `· ${state.sessions.length}`)
+    : '';
+  el.sessionList.innerHTML = '';
+  if (!list.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No sessions yet. Start the timer or add time manually.';
+    el.sessionList.appendChild(empty);
+    return;
+  }
+
+  list.forEach(s => {
+    const row = document.createElement('div');
+    row.className = 'session';
+
+    const icon = document.createElement('div');
+    icon.className = 'session__icon';
+    icon.textContent = s.label ? s.label.trim().charAt(0).toUpperCase()
+      : (s.source === 'manual' ? '+' : (s.source === 'break' ? 'B' : 'S'));
+
+    const main = document.createElement('div');
+    main.className = 'session__main';
+    const title = document.createElement('div');
+    title.className = 'session__title';
+    title.textContent = s.label || (s.source === 'break' ? 'Break'
+      : s.source === 'manual' ? 'Manual entry'
+      : s.source === 'stopwatch' ? 'Stopwatch' : 'Focus session');
+    const sub = document.createElement('div');
+    sub.className = 'session__sub';
+    sub.textContent = `${formatDay(s.start)} · ${formatClock(s.start)}`;
+    main.append(title, sub);
+
+    const dur = document.createElement('div');
+    dur.className = 'session__dur';
+    dur.textContent = formatDuration(s.durationMs);
+
+    const del = document.createElement('button');
+    del.className = 'session__del';
+    del.type = 'button';
+    del.title = 'Delete';
+    del.setAttribute('aria-label', 'Delete session');
+    del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    del.addEventListener('click', () => {
+      removeSession(state, s.id);
+      stats = computeStats(state);
+      renderStats();
+      renderToday();
+      render();
+      uiClick();
+    });
+
+    row.append(icon, main, dur, del);
+    el.sessionList.appendChild(row);
+  });
+}
+
+function exportData() {
+  const payload = JSON.stringify({ exportedAt: new Date().toISOString(), ...state }, null, 2);
+  const blob = new Blob([payload], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `cadence-${isoDateInput(Date.now())}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  showToast('Exported your data');
+}
+
+function importData(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(String(reader.result));
+      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.sessions)) {
+        throw new Error('bad file');
+      }
+      // Every value from an arbitrary file is checked before it is trusted.
+      state.settings = sanitizeSettings(parsed.settings);
+      state.sessions = sanitizeSessions(parsed.sessions);
+      state.counters = {
+        focus: Number(parsed.counters?.focus) || 0,
+        break: Number(parsed.counters?.break) || 0,
+      };
+      state.plans = sanitizePlans(parsed.plans);
+      state.activities = sanitizeActivities(parsed.activities);
+      state.settings.mode = T.mode;
+      saveNow(state);
+      sound.setTheme(state.settings.soundTheme);
+      sound.setVolume(state.settings.volume / 100);
+      sound.setEnabled(state.settings.soundEnabled);
+      applyAppearance();
+      syncModeUI();
+      syncSettingsUI();
+      renderPresetChips();
+      stats = computeStats(state);
+      render();
+      renderStats();
+      renderPlanPanel();
+      refreshPlanner();
+      renderToday();
+      showToast('Data imported');
+    } catch {
+      showToast('That file could not be read');
+    } finally {
+      event.target.value = '';
+    }
+  };
+  reader.readAsText(file);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   UI surfaces: drawer, popover, dialog, toast
+   ═══════════════════════════════════════════════════════════ */
+
+function openDrawer() {
+  // A pending hide from a previous close must not take this drawer down.
+  clearTimeout(drawerHideTimer);
+  drawerHideTimer = null;
+  el.scrim.hidden = false;
+  el.settingsPanel.hidden = false;
+  requestAnimationFrame(() => {
+    el.scrim.dataset.show = 'true';
+    el.settingsPanel.dataset.show = 'true';
+  });
+  el.settingsBtn.setAttribute('aria-expanded', 'true');
+  lastFocusTarget = document.activeElement;
+  el.closeSettings.focus();
+  renderStats();
+  document.addEventListener('keydown', trapFocus, true);
+}
+
+function closeDrawer() {
+  clearTimeout(drawerHideTimer);
+  el.scrim.dataset.show = 'false';
+  el.settingsPanel.dataset.show = 'false';
+  el.settingsBtn.setAttribute('aria-expanded', 'false');
+  document.removeEventListener('keydown', trapFocus, true);
+  drawerHideTimer = setTimeout(() => {
+    drawerHideTimer = null;
+    el.scrim.hidden = true;
+    el.settingsPanel.hidden = true;
+  }, 420);
+  lastFocusTarget?.focus?.();
+}
+
+function trapFocus(e) {
+  if (e.key !== 'Tab' || el.settingsPanel.hidden) return;
+  const nodes = el.settingsPanel.querySelectorAll(
+    'button, input, select, textarea, [href], [tabindex]:not([tabindex="-1"])'
+  );
+  const list = [...nodes].filter(n => !n.disabled && n.offsetParent !== null);
+  if (!list.length) return;
+  const first = list[0];
+  const last = list[list.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+
+function switchTab(name) {
+  el.drawerTabs.forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+  el.panels.forEach(p => { p.hidden = p.dataset.panel !== name; });
+  if (name === 'data') renderStats();
+  if (name === 'plan') renderPlanPanel();
+}
+
+function openPopover() {
+  if (T.mode !== 'timer') return;
+  if (T.sessionId) return;              // a plan block owns its length
+  if (!el.settingsPanel.hidden) closeDrawer();
+  el.durationInput.value = Math.max(1, Math.round(T.target / 60000));
+  el.durationPop.hidden = false;
+  positionPopover();
+  el.durationInput.focus();
+  el.durationInput.select();
+}
+
+function positionPopover() {
+  const r = el.metaLabel.getBoundingClientRect();
+  const w = el.durationPop.offsetWidth;
+  const h = el.durationPop.offsetHeight;
+  let left = r.left + r.width / 2 - w / 2;
+  left = clamp(left, 16, window.innerWidth - w - 16);
+  let top = r.bottom + 12;
+  if (top + h > window.innerHeight - 16) top = Math.max(16, r.top - h - 12);
+  el.durationPop.style.left = `${left}px`;
+  el.durationPop.style.top = `${top}px`;
+}
+
+function closePopover() {
+  el.durationPop.hidden = true;
+}
+
+function openAddDialog() {
+  closePopover();
+  if (!el.settingsPanel.hidden) closeDrawer();
+  el.addHours.value = '0';
+  el.addMinutes.value = '30';
+  el.addLabel.value = '';
+  el.addDate.value = isoDateInput(Date.now());
+  if (typeof el.addDialog.showModal === 'function') el.addDialog.showModal();
+  else el.addDialog.setAttribute('open', '');
+  setTimeout(() => el.addMinutes.focus(), 60);
+}
+
+function submitAdd() {
+  const h = clamp(parseInt(el.addHours.value, 10) || 0, 0, 24);
+  const m = clamp(parseInt(el.addMinutes.value, 10) || 0, 0, 59);
+  const ms = (h * 60 + m) * 60000;
+  if (ms <= 0) { showToast('Enter how much time you studied'); return; }
+
+  const dateVal = el.addDate.value || isoDateInput(Date.now());
+  const isToday = dateVal === isoDateInput(Date.now());
+  const start = isToday
+    ? Date.now()
+    : new Date(`${dateVal}T12:00:00`).getTime();
+
+  addSession(state, {
+    durationMs: ms,
+    mode: 'manual',
+    label: el.addLabel.value.trim(),
+    source: 'manual',
+    start,
+  });
+
+  stats = computeStats(state);
+  renderToday();
+  renderStats();
+  render();
+  el.addDialog.close?.();
+  showToast(`Added ${formatDuration(ms)}`);
+  uiClick();
+}
+
+/**
+ * Toasts are queued, not overwritten.
+ *
+ * A session ending can fire two messages in the same breath — “Self study
+ * session ended, 12:30 PM” and then “Break started” — and the second one must
+ * not swallow the first. Each message gets its moment on screen.
+ */
+const toastQueue = [];
+let toastBusy = false;
+
+function showToast(message) {
+  if (!message) return;
+  toastQueue.push(message);
+  while (toastQueue.length > 4) toastQueue.shift();
+  if (!toastBusy) nextToast();
+}
+
+function nextToast() {
+  clearTimeout(toastTimer);
+  const message = toastQueue.shift();
+  if (message === undefined) { toastBusy = false; return; }
+  toastBusy = true;
+  el.toast.textContent = message;
+  el.toast.hidden = false;
+  el.toast.dataset.leaving = 'false';
+  toastTimer = setTimeout(() => {
+    el.toast.dataset.leaving = 'true';
+    setTimeout(() => {
+      el.toast.hidden = true;
+      nextToast();
+    }, 260);
+  }, 2400);
+}
+
+function uiClick() {
+  if (state.settings.uiClicks && state.settings.soundEnabled) sound.play('click');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Events
+   ═══════════════════════════════════════════════════════════ */
+
+function bindEvents() {
+  el.tabs.forEach(tab => tab.addEventListener('click', () => { setMode(tab.dataset.mode); uiClick(); }));
+  el.viewButtons.forEach(b => b.addEventListener('click', () => { setView(b.dataset.view); uiClick(); }));
+
+  el.primaryBtn.addEventListener('click', () => {
+    if (T.status === 'running') pause(); else start();
+  });
+  el.stopBtn.addEventListener('click', () => stop());
+  el.resetBtn.addEventListener('click', () => { reset(); uiClick(); });
+  $('addTimeBtn').addEventListener('click', () => { openAddDialog(); uiClick(); });
+
+  el.metaLabel.addEventListener('click', () => {
+    if (el.metaLabel.dataset.interactive === 'true') openPopover();
+  });
+
+  // Popover
+  el.durationClose.addEventListener('click', closePopover);
+  el.durationApply.addEventListener('click', () => applyDuration(parseInt(el.durationInput.value, 10)));
+  el.durationInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); applyDuration(parseInt(el.durationInput.value, 10)); }
+  });
+
+  // Drawer
+  el.settingsBtn.addEventListener('click', () => { openDrawer(); uiClick(); });
+  el.closeSettings.addEventListener('click', closeDrawer);
+  el.scrim.addEventListener('click', closeDrawer);
+  el.drawerTabs.forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+
+  // Add dialog
+  el.addSubmit.addEventListener('click', submitAdd);
+  el.addCancel.addEventListener('click', () => el.addDialog.close?.());
+  el.addClose.addEventListener('click', () => el.addDialog.close?.());
+  // Enter inside the form adds the time instead of quietly closing the dialog.
+  el.addForm?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitAdd();
+  });
+
+  // Import from the planner itself
+  el.planImport?.addEventListener('click', () => el.planImportFile?.click());
+  el.planImportFile?.addEventListener('change', async () => {
+    const file = el.planImportFile.files?.[0];
+    el.planImportFile.value = '';
+    if (file) await importTimetable(file);
+  });
+
+  // Copy a day
+  el.planCopy?.addEventListener('click', () => openCopyDialog());
+  el.copyClose?.addEventListener('click', () => el.copyDialog?.close?.());
+  el.copyOptions?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-copy-from]');
+    if (!btn) return;
+    copyDay(btn.dataset.copyFrom);
+  });
+
+  // Custom preset creator
+  el.addPreset.addEventListener('click', () => {
+    const existing = $('presetAdder');
+    if (existing) { existing.remove(); return; }
+    const row = document.createElement('div');
+    row.id = 'presetAdder';
+    row.className = 'row';
+    row.style.marginTop = '10px';
+    row.innerHTML = `
+      <label class="field"><span class="field__label">Focus <em>min</em></span>
+        <input class="input input--num" id="npFocus" type="number" min="1" max="600" value="${state.settings.focusMin}" inputmode="numeric"></label>
+      <label class="field"><span class="field__label">Break <em>min</em></span>
+        <input class="input input--num" id="npBreak" type="number" min="1" max="120" value="${state.settings.breakMin}" inputmode="numeric"></label>`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn--soft btn--sm';
+    btn.textContent = 'Add';
+    btn.style.marginBottom = '12px';
+    btn.addEventListener('click', () => {
+      const f = clamp(parseInt($('npFocus').value, 10) || 25, 1, 600);
+      const b = clamp(parseInt($('npBreak').value, 10) || 5, 1, 120);
+      state.settings.customPresets.push({ id: uid('p'), label: `${f} / ${b}`, focus: f, break: b, custom: true });
+      save(state);
+      renderPresetChips();
+      row.remove();
+      showToast('Preset added');
+    });
+    row.appendChild(btn);
+    el.presetChips.parentElement.appendChild(row);
+    $('npFocus').focus();
+  });
+
+  // Click outside popover
+  document.addEventListener('pointerdown', (e) => {
+    if (el.durationPop.hidden) return;
+    if (!el.durationPop.contains(e.target) && !el.metaLabel.contains(e.target)) closePopover();
+  });
+  window.addEventListener('resize', () => { if (!el.durationPop.hidden) positionPopover(); });
+
+  // Keyboard
+  document.addEventListener('keydown', onKeyDown);
+
+  // Lifecycle
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      sound.resume();
+      if (T.status === 'running') {
+        requestWakeLock();
+        if (T.mode === 'timer') {
+          const remaining = T.target - elapsedMs();
+          if (remaining <= 0) finishSession(T.kind, T.target);
+          else scheduleTimeout();
+        }
+        startLoop();
+      }
+      planTick();
+      render();
+    } else {
+      releaseWakeLock();
+    }
+  });
+
+  window.addEventListener('pageshow', () => {
+    if (T.status === 'running') startLoop();
+    planTick();
+  });
+  window.addEventListener('pagehide', () => { persistRuntime(); });
+
+  // Install prompt
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstall = e;
+    $('installBtn').hidden = false;
+    $('installLandingBtn')?.removeAttribute('hidden');
+  });
+  $('installBtn').addEventListener('click', async () => {
+    if (!deferredInstall) return;
+    deferredInstall.prompt();
+    const res = await deferredInstall.userChoice;
+    if (res.outcome === 'accepted') $('installBtn').hidden = true;
+    deferredInstall = null;
+  });
+  window.addEventListener('appinstalled', () => {
+    $('installBtn').hidden = true;
+    showToast('Cadence installed');
+  });
+}
+
+/* ── copy a day ─────────────────────────────────────────── */
+
+function openCopyDialog() {
+  const date = plannerDate();
+  const today = dateKey(Date.now());
+  const options = [
+    { key: shiftKey(date, -1), label: 'Previous day' },
+    { key: shiftKey(date, -7), label: 'Last week' },
+    { key: today, label: 'Today' },
+  ];
+  el.copyOptions.innerHTML = '';
+  for (const o of options) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'modal-option';
+    btn.dataset.copyFrom = o.key;
+    btn.innerHTML = `<div><div class="mo-title">${o.label}</div>`
+      + `<div class="mo-sub">${new Date(o.key.replace(/-/g, '/')).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div></div>`
+      + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">'
+      + '<path d="m9 18 6-6-6-6"/></svg>';
+    el.copyOptions.appendChild(btn);
+  }
+  if (typeof el.copyDialog.showModal === 'function') el.copyDialog.showModal();
+  else el.copyDialog.setAttribute('open', '');
+}
+
+function copyDay(fromDate) {
+  const date = plannerDate();
+  if (fromDate === date) {
+    showToast('That is the same day');
+    return;
+  }
+  const from = planFor(fromDate);
+  if (!from.blocks.length) {
+    showToast('Nothing planned on that day');
+    return;
+  }
+  const to = planFor(date);
+  setPlan(state, date, {
+    ...to,
+    blocks: from.blocks.map(b => ({ ...b, id: uid('b') })),
+    imported: from.imported ? { ...from.imported } : null,
+  });
+  el.copyDialog.close?.();
+  renderPlanPanel();
+  renderPlanLine();
+  refreshPlanner();
+  showToast('Plan copied');
+}
+
+/* ── keyboard ────────────────────────────────────────────── */
+
+function onKeyDown(e) {
+  const tag = (e.target.tagName || '').toLowerCase();
+  const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
+  // A focused button keeps its own Space activation.
+  const onButton = tag === 'button' || tag === 'a';
+
+  if (e.key === 'Escape') {
+    if (!el.durationPop.hidden) { closePopover(); return; }
+    if (!el.settingsPanel.hidden) { closeDrawer(); return; }
+    if (el.addDialog.open) { el.addDialog.close(); return; }
+    if (el.copyDialog?.open) { el.copyDialog.close(); return; }
+    if (state.settings.focusMode) {
+      state.settings.focusMode = false;
+      save(state);
+      applyAppearance();
+      syncSettingsUI();
+      return;
+    }
+    return;
+  }
+
+  if (typing || el.addDialog.open) return;
+  // While the drawer is open only Escape does anything — the shortcuts must
+  // never fire behind an open panel.
+  if (!el.settingsPanel.hidden) return;
+
+  if (e.code === 'Space') {
+    if (onButton) return;
+    if (currentView() !== 'clock') return;
+    e.preventDefault();
+    if (T.status === 'running') pause(); else start();
+  } else if (e.key === 'r' || e.key === 'R') {
+    if (currentView() !== 'clock') return;
+    reset();
+  } else if (e.key === 's' || e.key === 'S') {
+    if (currentView() !== 'clock') return;
+    setMode(T.mode === 'timer' ? 'stopwatch' : 'timer');
+  } else if (e.key === 'a' || e.key === 'A') {
+    openAddDialog();
+  } else if (e.key === 'f' || e.key === 'F') {
+    if (currentView() !== 'clock') return;
+    state.settings.focusMode = !state.settings.focusMode;
+    save(state);
+    applyAppearance();
+    syncSettingsUI();
+  } else if (e.key === 'p' || e.key === 'P') {
+    setView(currentView() === 'plan' ? 'clock' : 'plan');
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PWA bootstrap
+   ═══════════════════════════════════════════════════════════ */
+
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  if (location.protocol === 'file:') return;
+  try {
+    const reg = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+    reg.addEventListener('updatefound', () => {
+      const sw = reg.installing;
+      if (!sw) return;
+      sw.addEventListener('statechange', () => {
+        if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+          showToast('Update ready — reopen to apply');
+        }
+      });
+    });
+  } catch (err) {
+    console.warn('[Cadence] service worker registration failed', err);
+  }
+}
+
+function detectPlatform() {
+  const ua = navigator.userAgent;
+  const iOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  if (iOS && !standalone) $('iosHint').hidden = false;
+  if (!('wakeLock' in navigator)) {
+    $('wakeLockHint').textContent = 'Not supported by this browser — timing stays exact regardless';
+  } else if (iOS) {
+    $('wakeLockHint').textContent = 'iOS only holds a wake lock on Home Screen apps running iOS 18.4+';
+  }
+  if (!('Notification' in window)) {
+    $('notifHint').textContent = 'Not supported by this browser';
+  }
+}
+
+/**
+ * Launch parameters — used by the PWA shortcuts in the manifest
+ * (e.g. `?view=plan`).
+ */
+function applyLaunchParams() {
+  const params = new URLSearchParams(location.search);
+  const view = params.get('view');
+  const mode = params.get('mode');
+  const dur = parseInt(params.get('dur'), 10);
+
+  if (view === 'plan' || view === 'clock') state.settings.view = view;
+
+  if (mode === 'timer' || mode === 'stopwatch') {
+    T.mode = mode;
+    state.settings.mode = mode;
+    syncModeUI();
+  }
+
+  if (mode === 'timer' && dur >= 1 && dur <= 600 && T.status === 'idle') {
+    // A shortcut starts one session of the requested length — it never
+    // overwrites the session length the user chose for themselves.
+    T.kind = 'focus';
+    T.target = dur * 60000;
+    setTimeout(() => { if (T.status === 'idle') start({ target: dur * 60000 }); }, 80);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Init
+   ═══════════════════════════════════════════════════════════ */
+
+function init() {
+  // The mode the user last used is the mode they get back.
+  T.mode = state.settings.mode === 'timer' ? 'timer' : 'stopwatch';
+  T.target = state.settings.focusMin * 60000;
+
+  const version = $('appVersion');
+  if (version) version.textContent = APP_VERSION;
+
+  sound.setTheme(state.settings.soundTheme);
+  sound.setVolume(state.settings.volume / 100);
+  sound.setEnabled(state.settings.soundEnabled);
+
+  applyAppearance();
+  syncModeUI();
+  syncSettingsUI();
+  renderPresetChips();
+  renderQuickDurations();
+
+  // The planner needs the store; it writes back through the same functions.
+  mountPlanner({
+    state,
+    el,
+    toast: showToast,
+    save: () => save(state),
+    getPlan: (date) => getPlan(state, date),
+    setPlan: (date, plan) => setPlan(state, date, plan),
+    blocksFromSessions,
+    onPlanChanged: () => {
+      renderPlanLine();
+      renderPlanPanel();
+    },
+    onStartBlock: (block) => startPlanBlock(block),
+    onCopyRequest: () => openCopyDialog(),
+  });
+
+  stats = computeStats(state);
+  render();
+  renderToday();
+  renderStats();
+  renderPlanPanel();
+
+  bindEvents();
+  bindSettings();
+  restoreRuntime();
+  applyLaunchParams();
+  updateControls();
+  setView(currentView());
+  render();
+
+  detectPlatform();
+  registerServiceWorker();
+  startPlanLoop();
+  planTick();
+
+  // First interaction unlocks audio on browsers that require a gesture.
+  const unlock = () => { sound.unlock(); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
+  window.addEventListener('pointerdown', unlock, { once: true });
+  window.addEventListener('keydown', unlock, { once: true });
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
