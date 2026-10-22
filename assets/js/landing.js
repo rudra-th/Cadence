@@ -102,16 +102,32 @@ function initScrollAnimations() {
     entries.forEach(entry => {
       if (entry.isIntersecting) {
         entry.target.style.opacity = '1';
-        entry.target.style.transform = 'translateY(0)';
+        entry.target.style.transform = 'translateY(0) scale(1)';
       }
     });
-  }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+  }, { threshold: 0.1, rootMargin: '0px 0px -60px 0px' });
 
-  document.querySelectorAll('.feature, .step, .local__item').forEach(el => {
+  document.querySelectorAll('.feature, .step, .local__item, .section__head').forEach(el => {
     el.style.opacity = '0';
-    el.style.transform = 'translateY(30px)';
-    el.style.transition = 'opacity 0.8s ease-out, transform 0.8s ease-out';
+    el.style.transform = 'translateY(40px)';
+    el.style.transition = 'opacity 1s ease-out, transform 1s ease-out';
     observer.observe(el);
+  });
+
+  // Parallax effect on scroll
+  let ticking = false;
+  window.addEventListener('scroll', () => {
+    if (!ticking) {
+      window.requestAnimationFrame(() => {
+        const scrolled = window.pageYOffset;
+        const hero = document.querySelector('.hero');
+        if (hero) {
+          hero.style.transform = `translateY(${scrolled * 0.3}px)`;
+        }
+        ticking = false;
+      });
+      ticking = true;
+    }
   });
 }
 
