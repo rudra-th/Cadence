@@ -1319,6 +1319,77 @@ body[data-reduce-motion="true"] .dial[data-running="true"]::before { animation: 
 .topbar__center { display: flex; align-items: center; gap: 10px; }
 
 /* ═══════════════════════════════════════════════════════════
+   Cadence — page nav
+   ═══════════════════════════════════════════════════════════ */
+
+.pagenav {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.pagenav__link {
+  padding: 6px 14px;
+  border-radius: var(--r-pill);
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-faint);
+  text-decoration: none;
+  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+
+.pagenav__link:hover { color: var(--text-dim); }
+.pagenav__link[aria-current="page"] {
+  color: var(--text);
+  background: var(--surface-3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.runtime-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.runtime-chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.6);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Cadence — plan page colours
+   ═══════════════════════════════════════════════════════════ */
+
+body.planpage {
+  --plan-study: #7FA6FF;
+  --plan-rest:  #63C9A4;
+  --plan-life:  #E9B667;
+  --plan-accent: #FFFFFF;
+}
+
+/* ═══════════════════════════════════════════════════════════
    Cadence — the planner workspace
    ═══════════════════════════════════════════════════════════ */
 
@@ -1517,6 +1588,28 @@ body[data-reduce-motion="true"] .dial[data-running="true"]::before { animation: 
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
 }
+
+body.planpage .grid__block[data-kind="study"] {
+  background: var(--plan-study);
+  color: #000;
+  box-shadow: 0 0 0 1px rgba(127, 166, 255, 0.45), 0 6px 18px -12px rgba(127, 166, 255, 0.9);
+}
+body.planpage .grid__block[data-kind="rest"] {
+  background: var(--plan-rest);
+  color: #000;
+  box-shadow: 0 0 0 1px rgba(99, 201, 164, 0.4), 0 6px 18px -12px rgba(99, 201, 164, 0.9);
+}
+body.planpage .grid__block[data-kind="life"] {
+  background: var(--plan-life);
+  color: #000;
+  box-shadow: 0 0 0 1px rgba(233, 182, 103, 0.42), 0 6px 18px -12px rgba(233, 182, 103, 0.9);
+}
+body.planpage .grid__block[data-kind="study"] .grid__blockcode,
+body.planpage .grid__block[data-kind="rest"] .grid__blockcode,
+body.planpage .grid__block[data-kind="life"] .grid__blockcode {
+  opacity: 0.7;
+}
+
 .grid__blocklabel { overflow: hidden; text-overflow: ellipsis; }
 .grid__blockcode {
   font-family: var(--mono);
@@ -1576,6 +1669,21 @@ body[data-reduce-motion="true"] .dial[data-running="true"]::before { animation: 
   background: var(--tone, #8C8C8C);
   flex: none;
 }
+body.planpage .pick[data-kind="study"] .pick__dot { background: var(--plan-study); }
+body.planpage .pick[data-kind="rest"]  .pick__dot { background: var(--plan-rest);  }
+body.planpage .pick[data-kind="life"]  .pick__dot { background: var(--plan-life);  }
+body.planpage .pick[aria-pressed="true"][data-kind="study"] {
+  border-color: rgba(127, 166, 255, 0.6);
+  box-shadow: 0 0 0 1px rgba(127, 166, 255, 0.25);
+}
+body.planpage .pick[aria-pressed="true"][data-kind="rest"] {
+  border-color: rgba(99, 201, 164, 0.6);
+  box-shadow: 0 0 0 1px rgba(99, 201, 164, 0.25);
+}
+body.planpage .pick[aria-pressed="true"][data-kind="life"] {
+  border-color: rgba(233, 182, 103, 0.6);
+  box-shadow: 0 0 0 1px rgba(233, 182, 103, 0.25);
+}
 .pick__code {
   font-family: var(--mono);
   font-size: 9.5px;
@@ -1613,12 +1721,125 @@ body[data-reduce-motion="true"] .dial[data-running="true"]::before { animation: 
   background: var(--tone, #8C8C8C);
   flex: none;
 }
+body.planpage .blockrow[data-kind="study"] .blockrow__title::before { background: var(--plan-study); }
+body.planpage .blockrow[data-kind="rest"]  .blockrow__title::before { background: var(--plan-rest);  }
+body.planpage .blockrow[data-kind="life"]  .blockrow__title::before { background: var(--plan-life);  }
 .blockrow__sub {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text-faint);
 }
 .blockrow__actions { display: flex; align-items: center; gap: 4px; flex: none; }
+
+/* ── Plan page specific ─────────────────────────────────── */
+.planpage__workspace { max-width: 1240px; }
+
+.plan-timetable .card__head {
+  align-items: center;
+}
+
+body.planpage .btn--primary {
+  background: linear-gradient(180deg, #FFFFFF 0%, #F0F4FF 100%);
+  box-shadow: 0 10px 30px -12px rgba(127, 166, 255, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.timetable-status {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.timetable-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.timetable-row__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.timetable-row__value {
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--text);
+  text-align: right;
+}
+
+.timetable-tasks {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.timetable-tasks__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.timetable-tasks__list {
+  display: grid;
+  gap: 6px;
+}
+
+.timetable-taskrow {
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.timetable-tasks__subjects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.subject-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.modal-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  text-align: left;
+  margin-bottom: 8px;
+}
+
+.modal-option:hover { background: var(--surface-3); border-color: var(--line-2); }
+.mo-title { font-weight: 550; color: var(--text); }
+.mo-sub { font-size: 12px; color: var(--text-faint); }
 
 /* ── Tasks ───────────────────────────────────────────────── */
 .taskform { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }

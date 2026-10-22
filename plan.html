@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Cadence — plan the day, run the day</title>
-<meta name="description" content="Cadence is an offline-first study workspace: paint your day onto a 24-hour grid and let the clock run it, block by block.">
+<title>Cadence — Plan</title>
+<meta name="description" content="Cadence plan page — paint your day, import a timetable, save it to the timer, and download a PDF.">
 <meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -20,8 +20,6 @@
 <link rel="preload" href="./assets/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="./assets/css/styles.css">
 <script>
-  /* The theme is set before the first paint, so the app never flashes the
-     wrong palette on the way in. */
   (function () {
     try {
       var raw = localStorage.getItem('cadence.store.v1');
@@ -33,7 +31,7 @@
   })();
 </script>
 </head>
-<body>
+<body class="planpage">
 
 <div class="aurora" aria-hidden="true">
   <span class="aurora__blob aurora__blob--a"></span>
@@ -44,7 +42,7 @@
 <div class="app">
 
   <header class="topbar">
-    <div class="brand">
+    <a class="brand" href="./index.html" aria-label="Cadence — back to home">
       <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
         <defs>
           <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
@@ -58,100 +56,33 @@
         <circle cx="16" cy="16" r="1.9" fill="currentColor"/>
       </svg>
       <span class="brand__name">Cadence</span>
-    </div>
+    </a>
 
-    <div class="topbar__center">
-      <div class="viewswitch" id="viewSwitch" role="group" aria-label="Workspace">
-        <button class="viewswitch__btn" type="button" data-view="clock" aria-pressed="true">Clock</button>
-        <button class="viewswitch__btn" type="button" data-view="plan" aria-pressed="false">Plan</button>
-      </div>
-    </div>
+    <nav class="pagenav" aria-label="Pages">
+      <a class="pagenav__link" href="./clock.html">Clock</a>
+      <a class="pagenav__link" href="./plan.html" aria-current="page">Plan</a>
+    </nav>
 
-    <button class="icon-btn" id="settingsBtn" type="button" aria-label="Open settings"
-            aria-haspopup="dialog" aria-expanded="false" aria-controls="settingsPanel">
-      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"
-           stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="3.1"/>
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-      </svg>
-    </button>
+    <div class="topbar__right">
+      <span class="runtime-chip" id="planRuntimeChip" hidden>
+        <span class="runtime-chip__dot"></span>
+        <span id="planRuntimeText">Timer running</span>
+      </span>
+      <button class="icon-btn" id="planThemeBtn" type="button" aria-label="Toggle theme">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+        </svg>
+      </button>
+    </div>
   </header>
 
-  <!-- ══════════ The clock ══════════ -->
-  <main class="stage" id="viewClock">
-
-    <div class="segmented" role="group" aria-label="Timer mode">
-      <span class="segmented__thumb" aria-hidden="true"></span>
-      <button class="segmented__btn" type="button" id="tab-stopwatch"
-              data-mode="stopwatch" aria-pressed="true">Stopwatch</button>
-      <button class="segmented__btn" type="button" id="tab-timer"
-              data-mode="timer" aria-pressed="false">Timer</button>
-    </div>
-
-    <div class="dial" id="dial">
-      <svg class="dial__ring" viewBox="0 0 260 260" aria-hidden="true">
-        <defs>
-          <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%"  stop-color="var(--accent)"/>
-            <stop offset="100%" stop-color="var(--accent-2)"/>
-          </linearGradient>
-        </defs>
-        <circle class="dial__track" cx="130" cy="130" r="118"/>
-        <circle class="dial__progress" id="ringProgress" cx="130" cy="130" r="118" stroke="url(#ringGrad)"/>
-        <circle class="dial__head" id="ringHead" cx="130" cy="130" r="118"/>
-      </svg>
-
-      <div class="dial__inner">
-        <div class="readout">
-          <div class="readout__time" id="timeDisplay" role="timer" aria-live="off">
-            <span class="readout__lead" id="timeLead">00</span><span
-                  class="readout__sep" id="timeSep">:</span><span
-                  class="readout__tail" id="timeTail">00</span><span
-                  class="readout__frac" id="timeFrac"></span>
-          </div>
-          <button class="readout__meta" id="metaLabel" type="button" title="Set custom time">
-            <span id="metaText">Stopwatch</span>
-            <svg class="readout__meta-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none"
-                 stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 21v-6M4 11V3M12 21v-9M12 8V3M20 21v-4M20 13V3"/>
-              <path d="M1.5 11h5M9 8h6M17 13h5.5"/>
-            </svg>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div class="controls">
-      <button class="btn btn--primary" id="primaryBtn" type="button">
-        <svg class="btn__icon" id="primaryIcon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M8 5.5v13l11-6.5z" fill="currentColor"/>
-        </svg>
-        <span id="primaryLabel">Start</span>
-      </button>
-      <button class="btn btn--stop" id="stopBtn" type="button" hidden>
-        <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="6.5" y="6.5" width="11" height="11" rx="2.4" fill="currentColor"/>
-        </svg>
-        <span>Stop</span>
-      </button>
-    </div>
-
-    <div class="subcontrols">
-      <button class="linkbtn" id="resetBtn" type="button">Reset</button>
-    </div>
-
-    <p class="today" id="todayLine">Ready when you are</p>
-    <p class="today today--sub" id="planLine" hidden></p>
-  </main>
-
-  <!-- ══════════ The planner ══════════ -->
-  <main class="workspace" id="viewPlan" hidden>
+  <main class="workspace planpage__workspace">
 
     <header class="plan__head">
       <div class="plan__datebar">
         <button class="icon-btn" id="planPrev" type="button" aria-label="Previous day">
-          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9"
-               stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
         </button>
 
         <div class="plan__date">
@@ -160,16 +91,14 @@
         </div>
 
         <button class="icon-btn" id="planNext" type="button" aria-label="Next day">
-          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9"
-               stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
         </button>
 
         <button class="btn btn--soft btn--sm" id="planToday" type="button">Today</button>
 
         <div class="plan__actions">
           <button class="btn btn--soft btn--sm" id="planImport" type="button">
-            <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
-                 stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
               <path d="M14 3v5h5"/>
               <path d="M19 8v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7z"/>
               <path d="M12 12v5M9.5 14.5 12 12l2.5 2.5"/>
@@ -177,6 +106,8 @@
             Import PDF
           </button>
           <input type="file" id="planImportFile" accept="application/pdf,.pdf" hidden>
+          <button class="btn btn--soft btn--sm" id="planSaveTimer" type="button">Save to timer</button>
+          <button class="btn btn--soft btn--sm" id="planDownloadPdf" type="button">Download PDF</button>
           <button class="btn btn--soft btn--sm" id="planCopy" type="button">Copy a day</button>
           <button class="btn btn--soft btn--sm" id="planClear" type="button">Clear day</button>
         </div>
@@ -184,6 +115,49 @@
 
       <div class="weekstrip" id="planWeek" role="group" aria-label="Pick a day"></div>
     </header>
+
+    <section class="card plan-timetable">
+      <div class="card__head">
+        <div>
+          <h3 class="card__title">Timetable</h3>
+          <p class="card__hint">Import a timetable PDF (or use one from this website). Continue it straight from here.</p>
+        </div>
+        <button class="btn btn--primary btn--sm" id="ttContinueBtn" type="button">Continue Timetable</button>
+      </div>
+
+      <div class="timetable-status">
+        <div class="timetable-row">
+          <span class="timetable-row__label">Current session</span>
+          <span class="timetable-row__value" id="ttCurrent">—</span>
+        </div>
+        <div class="timetable-row">
+          <span class="timetable-row__label">Next session</span>
+          <span class="timetable-row__value" id="ttNext">—</span>
+        </div>
+      </div>
+
+      <div class="timetable-tasks">
+        <div class="timetable-tasks__head">
+          <span>Tasks</span>
+          <span id="ttPlanTaskCount">0/0</span>
+        </div>
+        <div class="timetable-tasks__list" id="ttPlanTaskList"></div>
+        <div class="timetable-tasks__subjects" id="ttPlanSubjects" hidden></div>
+      </div>
+
+      <div class="dropzone" id="ttDrop" role="button" tabindex="0" aria-label="Import a timetable PDF">
+        <svg class="dropzone__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 3v5h5"/>
+          <path d="M19 8v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7z"/>
+          <path d="M12 12v5M9.5 14.5 12 12l2.5 2.5"/>
+        </svg>
+        <p class="dropzone__title">Drop timetable PDF</p>
+        <p class="dropzone__sub">Import here — it will also appear in the clock’s settings</p>
+        <button class="btn btn--soft btn--sm" id="ttPick" type="button">Choose PDF</button>
+      </div>
+      <input type="file" id="ttFile" accept="application/pdf,.pdf" hidden>
+      <div class="banner" id="ttBanner" hidden></div>
+    </section>
 
     <div class="plan__body">
       <section class="card">
@@ -236,8 +210,7 @@
         <p class="card__hint">What has to get done</p>
       </div>
       <form class="taskform" id="planTaskForm">
-        <input class="input" id="planTaskInput" type="text" maxlength="120"
-               placeholder="Add a task…" autocomplete="off">
+        <input class="input" id="planTaskInput" type="text" maxlength="120" placeholder="Add a task…" autocomplete="off">
         <div class="select-wrap">
           <select class="select" id="planTaskStage">
             <option value="">General</option>
@@ -254,343 +227,6 @@
   </main>
 </div>
 
-<!-- ══════════ Quick duration popover (Timer mode) ══════════ -->
-<div class="popover" id="durationPop" hidden role="dialog" aria-label="Set duration">
-  <div class="popover__head">
-    <span class="popover__title">Duration</span>
-    <button class="icon-btn icon-btn--sm" id="durationClose" type="button" aria-label="Close">
-      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-        <path d="M6 6l12 12M18 6L6 18"/>
-      </svg>
-    </button>
-  </div>
-  <div class="chips" id="durationPresets"></div>
-  <div class="popover__row">
-    <label class="field field--inline">
-      <span class="field__label">Minutes</span>
-      <input class="input input--num" id="durationInput" type="number" min="1" max="600" step="1" inputmode="numeric">
-    </label>
-    <button class="btn btn--soft" id="durationApply" type="button">Set</button>
-  </div>
-</div>
-
-<!-- ══════════ Settings drawer ══════════ -->
-<div class="scrim" id="scrim" hidden></div>
-
-<aside class="drawer" id="settingsPanel" role="dialog" aria-modal="true" aria-label="Settings" hidden>
-  <header class="drawer__head">
-    <h2 class="drawer__title">Settings</h2>
-    <button class="icon-btn" id="closeSettings" type="button" aria-label="Close settings">
-      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-        <path d="M6 6l12 12M18 6L6 18"/>
-      </svg>
-    </button>
-  </header>
-
-  <nav class="drawer__tabs" role="tablist" aria-label="Settings sections">
-    <button class="drawer__tab" role="tab" type="button" id="tab-timer"   data-tab="timer"   aria-controls="panel-timer"   aria-selected="true">Timer</button>
-    <button class="drawer__tab" role="tab" type="button" id="tab-plan"    data-tab="plan"    aria-controls="panel-plan"    aria-selected="false">Plan</button>
-    <button class="drawer__tab" role="tab" type="button" id="tab-sound"   data-tab="sound"   aria-controls="panel-sound"   aria-selected="false">Sound</button>
-    <button class="drawer__tab" role="tab" type="button" id="tab-display" data-tab="display" aria-controls="panel-display" aria-selected="false">Display</button>
-    <button class="drawer__tab" role="tab" type="button" id="tab-system"  data-tab="system"  aria-controls="panel-system"  aria-selected="false">System</button>
-    <button class="drawer__tab" role="tab" type="button" id="tab-data"    data-tab="data"    aria-controls="panel-data"    aria-selected="false">Data</button>
-  </nav>
-
-  <div class="drawer__body">
-
-    <!-- ── TIMER ── -->
-    <section class="panel" id="panel-timer" data-panel="timer" role="tabpanel" aria-labelledby="tab-timer">
-      <div class="group">
-        <h3 class="group__title">Focus presets</h3>
-        <div class="chips" id="presetChips"></div>
-        <button class="linkbtn linkbtn--accent" id="addPreset" type="button">+ Add custom preset</button>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Session lengths</h3>
-        <div class="row">
-          <label class="field">
-            <span class="field__label">Focus <em>min</em></span>
-            <input class="input input--num" id="setFocus" type="number" min="1" max="600" step="1" inputmode="numeric">
-          </label>
-          <label class="field">
-            <span class="field__label">Break <em>min</em></span>
-            <input class="input input--num" id="setBreak" type="number" min="1" max="120" step="1" inputmode="numeric">
-          </label>
-        </div>
-        <div class="row">
-          <label class="field">
-            <span class="field__label">Long break <em>min</em></span>
-            <input class="input input--num" id="setLongBreak" type="number" min="1" max="120" step="1" inputmode="numeric">
-          </label>
-          <label class="field">
-            <span class="field__label">Long break every <em>sessions</em></span>
-            <input class="input input--num" id="setInterval" type="number" min="2" max="12" step="1" inputmode="numeric">
-          </label>
-        </div>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Automation</h3>
-        <label class="switch">
-          <input type="checkbox" id="setAutoBreak">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Auto-start breaks</strong><small>Begin the break as soon as focus ends</small></span>
-        </label>
-        <label class="switch">
-          <input type="checkbox" id="setAutoFocus">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Auto-start next focus</strong><small>Chain sessions without pressing start</small></span>
-        </label>
-        <label class="switch">
-          <input type="checkbox" id="setSoundOnDone">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Alert on completion</strong><small>Sound + notification when time is up</small></span>
-        </label>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Daily goal</h3>
-        <label class="field">
-          <span class="field__label">Target <em>min / day</em></span>
-          <input class="input input--num" id="setGoal" type="number" min="0" max="960" step="5" inputmode="numeric">
-        </label>
-        <p class="hint" id="goalHint">Goal drives the ring in Stopwatch mode.</p>
-      </div>
-    </section>
-
-    <!-- ── PLAN ── -->
-    <section class="panel" id="panel-plan" data-panel="plan" role="tabpanel" aria-labelledby="tab-plan" hidden>
-      <div class="group">
-        <h3 class="group__title">TestOnGo import</h3>
-        <div class="dropzone" id="ttDrop" role="button" tabindex="0"
-             aria-label="Import a TestOnGo timetable PDF">
-          <svg class="dropzone__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none"
-               stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 3v5h5"/>
-            <path d="M19 8v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7z"/>
-            <path d="M12 12v5M9.5 14.5 12 12l2.5 2.5"/>
-          </svg>
-          <p class="dropzone__title">Drop today’s timetable PDF</p>
-          <p class="dropzone__sub">TestOnGo → Dashboard → Print → Save as PDF</p>
-          <button class="btn btn--soft btn--sm" id="ttPick" type="button">Choose PDF</button>
-        </div>
-        <input type="file" id="ttFile" accept="application/pdf,.pdf" hidden>
-        <div class="banner" id="ttBanner" hidden></div>
-      </div>
-
-      <div class="group" id="ttLoaded" hidden>
-        <h3 class="group__title">Today <span class="group__count" id="ttCount"></span></h3>
-        <p class="tt-date" id="ttDate"></p>
-        <p class="tt-summary" id="ttSummary"></p>
-        <p class="tt-summary" id="ttTasks" hidden></p>
-        <div class="tt-list" id="ttList"></div>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Automation</h3>
-        <label class="switch">
-          <input type="checkbox" id="setAutoPlan">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Auto-run the plan</strong><small>Start each block’s timer on its own</small></span>
-        </label>
-        <label class="switch">
-          <input type="checkbox" id="setRingOnBlockEnd">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Announce the end of a block</strong><small>Ring and say “Self study session ended”</small></span>
-        </label>
-        <p class="hint">Auto-running needs Cadence open. On a phone, add it to the Home Screen and leave it running — the clock keeps its time even when the screen sleeps.</p>
-        <button class="linkbtn linkbtn--danger" id="ttClear" type="button">Clear today’s plan</button>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Your activities</h3>
-        <div id="ttActivities"></div>
-      </div>
-    </section>
-
-    <!-- ── SOUND ── -->
-    <section class="panel" id="panel-sound" data-panel="sound" role="tabpanel" aria-labelledby="tab-sound" hidden>
-      <div class="group">
-        <label class="switch">
-          <input type="checkbox" id="setSoundEnabled">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Sound effects</strong><small>Master switch for every cue</small></span>
-        </label>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Sound theme</h3>
-        <div class="select-wrap">
-          <select class="select" id="setSoundTheme">
-            <option value="digital">Digital</option>
-            <option value="bell">Bell</option>
-            <option value="chime">Chime</option>
-            <option value="minimal">Minimal</option>
-            <option value="marimba">Marimba</option>
-            <option value="pad">Soft Pad</option>
-          </select>
-        </div>
-        <label class="field">
-          <span class="field__label">Volume <em id="volumeVal">60%</em></span>
-          <input class="range" id="setVolume" type="range" min="0" max="100" step="1">
-        </label>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Cues</h3>
-        <label class="switch">
-          <input type="checkbox" id="setTick">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Countdown ticks</strong><small>Soft click on the final 5 seconds</small></span>
-        </label>
-        <label class="switch">
-          <input type="checkbox" id="setUiClicks">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Interface clicks</strong><small>Subtle feedback on taps and toggles</small></span>
-        </label>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Preview</h3>
-        <div class="testrow">
-          <button class="btn btn--soft btn--sm" data-test="start" type="button">Start</button>
-          <button class="btn btn--soft btn--sm" data-test="pause" type="button">Pause</button>
-          <button class="btn btn--soft btn--sm" data-test="reset" type="button">Reset</button>
-          <button class="btn btn--soft btn--sm" data-test="complete" type="button">Complete</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- ── DISPLAY ── -->
-    <section class="panel" id="panel-display" data-panel="display" role="tabpanel" aria-labelledby="tab-display" hidden>
-      <div class="group">
-        <h3 class="group__title">Readout</h3>
-        <label class="switch">
-          <input type="checkbox" id="setMillis">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Show milliseconds</strong><small>Adds precision to the digits</small></span>
-        </label>
-        <label class="switch">
-          <input type="checkbox" id="setRingGlow">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Ambient ring glow</strong><small>Soft halo behind the progress ring</small></span>
-        </label>
-        <label class="switch">
-          <input type="checkbox" id="setReduceMotion">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Reduce motion</strong><small>Disable transitions and aurora drift</small></span>
-        </label>
-        <label class="switch">
-          <input type="checkbox" id="setClock24">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>24-hour history times</strong><small>Otherwise history uses AM / PM</small></span>
-        </label>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Appearance</h3>
-        <div class="select-wrap">
-          <select class="select" id="setTheme">
-            <option value="void">Void — pure black</option>
-            <option value="graphite">Graphite — soft charcoal</option>
-          </select>
-        </div>
-        <p class="hint">Cadence runs a pure monochrome palette — a black canvas, white type, and a single grey scale for everything in between. Your choice is remembered on this device.</p>
-      </div>
-    </section>
-
-    <!-- ── SYSTEM ── -->
-    <section class="panel" id="panel-system" data-panel="system" role="tabpanel" aria-labelledby="tab-system" hidden>
-      <div class="group">
-        <h3 class="group__title">Background behaviour</h3>
-        <label class="switch">
-          <input type="checkbox" id="setFocusMode">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Distraction-free</strong><small>Leave only the timer on screen</small></span>
-        </label>
-        <label class="switch">
-          <input type="checkbox" id="setWakeLock">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Keep screen awake</strong><small id="wakeLockHint">Prevent the screen sleeping mid-session</small></span>
-        </label>
-        <label class="switch">
-          <input type="checkbox" id="setNotifications">
-          <span class="switch__track"><span class="switch__thumb"></span></span>
-          <span class="switch__text"><strong>Desktop notifications</strong><small id="notifHint">Alerts even when the screen is off</small></span>
-        </label>
-        <div class="banner" id="systemBanner" hidden></div>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Install</h3>
-        <button class="btn btn--soft" id="installBtn" type="button" hidden>Install Cadence</button>
-        <div class="hintbox" id="iosHint" hidden>
-          <strong>Install on iPhone / iPad</strong>
-          Tap the <em>Share</em> button in Safari, then choose <em>Add to Home Screen</em>.
-        </div>
-        <p class="hint">Cadence works fully offline and keeps an accurate time even when the screen is off.</p>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Keyboard</h3>
-        <ul class="keys">
-          <li><kbd>Space</kbd> Start / pause</li>
-          <li><kbd>R</kbd> Reset</li>
-          <li><kbd>S</kbd> Switch mode</li>
-          <li><kbd>P</kbd> Plan / clock</li>
-          <li><kbd>A</kbd> Add time</li>
-          <li><kbd>F</kbd> Distraction-free</li>
-          <li><kbd>Esc</kbd> Close panels</li>
-        </ul>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">About</h3>
-        <p class="hint">Cadence <span id="appVersion">1.0.0</span> · All data is stored locally on this device.</p>
-        <button class="linkbtn" id="resetSettings" type="button">Reset all settings</button>
-      </div>
-    </section>
-
-    <!-- ── DATA ── -->
-    <section class="panel" id="panel-data" data-panel="data" role="tabpanel" aria-labelledby="tab-data" hidden>
-      <div class="group">
-        <h3 class="group__title">Overview</h3>
-        <div class="statgrid" id="statGrid"></div>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Last 7 days</h3>
-        <div class="chart" id="weekChart"></div>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Sessions <span class="group__count" id="sessionCount"></span></h3>
-        <button class="btn btn--soft btn--block" id="addTimeBtn" type="button">
-          <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
-               stroke-width="2" stroke-linecap="round">
-            <path d="M12 5v14M5 12h14"/>
-          </svg>
-          Add time
-        </button>
-        <div class="sessions" id="sessionList"></div>
-      </div>
-
-      <div class="group">
-        <h3 class="group__title">Your data</h3>
-        <div class="btnrow">
-          <button class="btn btn--soft" id="exportBtn" type="button">Export JSON</button>
-          <button class="btn btn--soft" id="importBtn" type="button">Import JSON</button>
-        </div>
-        <input type="file" id="importFile" accept="application/json,.json" hidden>
-        <button class="linkbtn linkbtn--danger" id="clearData" type="button">Erase all data</button>
-      </div>
-    </section>
-
-  </div>
-</aside>
-
-<!-- ══════════ Copy a day dialog ══════════ -->
 <dialog class="modal" id="copyDialog" aria-labelledby="copyTitle">
   <div class="modal__form">
     <header class="modal__head">
@@ -610,50 +246,8 @@
   </div>
 </dialog>
 
-<!-- ══════════ Add time dialog ══════════ -->
-<dialog class="modal" id="addDialog" aria-labelledby="addTitle">
-  <form method="dialog" class="modal__form" id="addForm">
-    <header class="modal__head">
-      <h2 class="modal__title" id="addTitle">Add study time</h2>
-      <button class="icon-btn" type="button" id="addClose" aria-label="Close">
-        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <path d="M6 6l12 12M18 6L6 18"/>
-        </svg>
-      </button>
-    </header>
-
-    <div class="modal__body">
-      <div class="row">
-        <label class="field">
-          <span class="field__label">Hours</span>
-          <input class="input input--num" id="addHours" type="number" min="0" max="24" step="1" value="0" inputmode="numeric">
-        </label>
-        <label class="field">
-          <span class="field__label">Minutes</span>
-          <input class="input input--num" id="addMinutes" type="number" min="0" max="59" step="1" value="30" inputmode="numeric">
-        </label>
-      </div>
-
-      <label class="field">
-        <span class="field__label">Subject <em>optional</em></span>
-        <input class="input" id="addLabel" type="text" maxlength="60" placeholder="e.g. Calculus revision" autocomplete="off">
-      </label>
-
-      <label class="field">
-        <span class="field__label">Date</span>
-        <input class="input" id="addDate" type="date">
-      </label>
-    </div>
-
-    <footer class="modal__foot">
-      <button class="btn btn--soft" type="button" id="addCancel">Cancel</button>
-      <button class="btn btn--primary" type="button" id="addSubmit">Add time</button>
-    </footer>
-  </form>
-</dialog>
-
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module" src="./assets/js/app.js"></script>
+<script type="module" src="./assets/js/planpage.js"></script>
 </body>
 </html>

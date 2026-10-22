@@ -426,10 +426,9 @@ function bindEvents() {
   el.planCopy.addEventListener('click', () => ctx.onCopyRequest(currentDate));
 }
 
-/* ── importing a TestOnGo dashboard ──────────────────────── */
+/* ── importing a timetable ───────────────────────────────── */ 
 
-export function importIntoPlan(date, sessions, meta) {
-  const blocks = ctx.blocksFromSessions(sessions);
+export function importIntoPlan(date, blocks, meta = {}) {
   const extra = customActivitiesFor(blocks, ctx.state.activities);
   if (extra.length) {
     ctx.state.activities = [...ctx.state.activities, ...extra];
@@ -440,6 +439,7 @@ export function importIntoPlan(date, sessions, meta) {
     date,
     blocks,
     imported: { label: meta.label || '', subjects: meta.subjects || [] },
+    done: {},
   });
   return blocks.length;
 }
