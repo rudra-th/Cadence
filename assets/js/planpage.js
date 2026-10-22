@@ -9,7 +9,7 @@
 import { load, save, getPlan, setPlan, savePlanForTimer } from './store.js';
 import {
   SLOT_MIN, SLOTS, activityMap, toneOf, codeOf,
-  paintSlot, removeBlock, planSummary, blockRangeLabel, customActivitiesFor, dayProgress, pendingWork,
+  paintSlot, removeBlock, planSummary, blockRangeLabel, customActivitiesFor, dayProgress, pendingWork, resizeBlock,
 } from './plan.js';
 import { dateKey, shiftKey, labelDate, clockLabel, humanDuration, minutesOfDay, uid } from './util.js';
 import { importTimetable, importErrorMessage } from './timetable-import.js';
@@ -166,6 +166,9 @@ function renderGrid(p) {
       if (mins % 60 === 0) {
         label.textContent = clockLabel(mins).replace(':00', '');
         label.classList.add('is-hour');
+      } else if (mins % 30 === 0) {
+        label.textContent = clockLabel(mins).split(':')[1] === '30' ? ':30' : '';
+        if (label.textContent) label.classList.add('is-half');
       }
       gutter.appendChild(label);
     }
@@ -213,7 +216,8 @@ function renderBlockList(p) {
     list.innerHTML = '<p class="empty">Nothing planned yet. Pick an activity and drag across the grid.</p>';
     return;
   }
-  for (const b of p.blocks) {
+  const sorted = [...p.blocks].sort((a,b) => a.startMin - b.startMin);
+  for (const b of sorted) {
     const row = document.createElement('div');
     row.className = 'blockrow';
     row.dataset.tone = String(toneOf(b.key));
@@ -231,13 +235,28 @@ function renderBlockList(p) {
 
     const actions = document.createElement('div');
     actions.className = 'blockrow__actions';
+
+    const shrink = document.createElement('button');
+    shrink.type = 'button';
+    shrink.className = 'icon-btn icon-btn--sm';
+    shrink.setAttribute('aria-label', `Shorten ${b.label} by 30 min`);
+    shrink.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 12h14"/></svg>';
+    shrink.addEventListener('click', () => writePlan({ ...plan(), blocks: resizeBlock(plan().blocks, b.id, 'end', -30) }));
+
+    const grow = document.createElement('button');
+    grow.type = 'button';
+    grow.className = 'icon-btn icon-btn--sm';
+    grow.setAttribute('aria-label', `Extend ${b.label} by 30 min`);
+    grow.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+    grow.addEventListener('click', () => writePlan({ ...plan(), blocks: resizeBlock(plan().blocks, b.id, 'end', 30) }));
+
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'icon-btn icon-btn--sm';
     del.setAttribute('aria-label', `Remove ${b.label}`);
     del.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
     del.addEventListener('click', () => writePlan({ ...plan(), blocks: removeBlock(plan().blocks, b.id) }));
-    actions.append(del);
+    actions.append(shrink, grow, del);
 
     row.append(main, actions);
     list.appendChild(row);

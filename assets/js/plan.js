@@ -368,3 +368,26 @@ export function customActivitiesFor(blocks, known = []) {
 export function blockRangeLabel(block) {
   return `${clockLabel(block.startMin)} – ${clockLabel(block.endMin)}`;
 }
+
+/**
+ * Adjust a block's length by dragging its edges (snapped to 30-minute grid).
+ */
+export function resizeBlock(blocks, blockId, direction, deltaMin) {
+  if (!deltaMin) return blocks;
+  const idx = blocks.findIndex(b => b.id === blockId);
+  if (idx === -1) return blocks;
+  const next = [...blocks];
+  const b = { ...next[idx] };
+  if (direction === 'start') {
+    b.startMin = Math.max(0, Math.min(b.endMin - SLOT_MIN, b.startMin + deltaMin));
+    b.startMin = Math.round(b.startMin / SLOT_MIN) * SLOT_MIN;
+    b.startSlot = Math.floor(b.startMin / SLOT_MIN);
+  } else {
+    b.endMin = Math.max(b.startMin + SLOT_MIN, Math.min(DAY_MIN, b.endMin + deltaMin));
+    b.endMin = Math.round(b.endMin / SLOT_MIN) * SLOT_MIN;
+    b.endSlot = Math.floor(b.endMin / SLOT_MIN);
+  }
+  if (b.endMin <= b.startMin) return blocks.filter(x => x.id !== blockId);
+  next[idx] = b;
+  return mergeBlocks(next);
+}
