@@ -9,7 +9,7 @@
  * runs, so there is only ever one truth about what today looks like.
  *
  * Blocks are stored in minutes past local midnight on the plan's own date.
- * The grid paints in 15-minute slots, so a block usually lands on a slot
+ * The grid paints in 30-minute slots, so a block usually lands on a slot
  * boundary — but the model does not insist on it, and an imported timetable
  * keeps its exact times.
  */
@@ -66,22 +66,10 @@ export function toneOf(key) {
   return h % 5;
 }
 
-/** The single letter shown in the grid when a block is too small for a word. */
-export function codeOf(label) {
-  const words = String(label).trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return '·';
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return words.map(w => w[0]).join('').slice(0, 2).toUpperCase();
-}
-
 /* ── plans ────────────────────────────────────────────────── */
 
 export function emptyPlan(date) {
   return { date, blocks: [], tasks: [], imported: null, done: {}, updatedAt: 0 };
-}
-
-export function blockDurationMs(block) {
-  return Math.max(0, (block.endMin - block.startMin)) * 60000;
 }
 
 /** Blocks in the order they happen. */
@@ -103,52 +91,113 @@ export function mergeBlocks(blocks) {
   return out;
 }
 
-/**
- * Paint one slot of the grid.
- *
- * @param {Array}  blocks   current blocks
- * @param {number} slot     0 … 95
- * @param {object|null} activity  the activity to paint, or null to erase
- * @returns {Array} a new list of blocks
- */
-export function paintSlot(blocks, slot, activity) {
-  const start = slot * SLOT_MIN;
-  const end = start + SLOT_MIN;
+/** Clamp a minute to a range and snap it to the grid. */
+function snap(minute, min = 0, max = DAY_MIN) {
+  return Math.max(min, Math.min(max, Math.round(minute / SLOT_MIN) * SLOT_MIN));
+}
 
+/**
+ * Cut a range out of the day.
+ *
+ * Whatever sits under `start`–`end` is trimmed or split in two. `keepId` spares
+ * one block, so a block can be dropped back on top of the time it covers.
+ */
+function cutRange(blocks, start, end, keepId = '') {
   const out = [];
   for (const b of blocks) {
+    if (b.id === keepId) continue;
     if (b.endMin <= start || b.startMin >= end) { out.push(b); continue; }
     if (b.startMin < start) out.push({ ...b, endMin: start });
     if (b.endMin > end) out.push({ ...b, id: uid('b'), startMin: end });
   }
+  return out;
+}
 
-  if (activity) {
-    let s = start;
-    let e = end;
+/**
+ * Paint a whole range of squares at once.
+ *
+ * This is the heart of the planner: press on one square, drag over a few more
+ * and every square the pointer crossed ends up holding the same activity.
+ *
+ * The range is painted in one go — whatever was under the drag is cut away and
+ * a single block is dropped in its place. Painting it atomically is what makes
+ * the drag feel right: dragging back and forth never leaves a seam behind,
+ * dragging over an existing block replaces it, and the result is the same
+ * whatever order the squares were crossed in.
+ *
+ * @param {Array}  blocks         current blocks
+ * @param {number} fromSlot       the first square of the range
+ * @param {number} toSlot         the last square of the range
+ * @param {object|null} activity  the activity to paint, or null to erase
+ * @returns {Array} a new list of blocks
+ */
+export function paintRange(blocks, fromSlot, toSlot, activity) {
+  const lo = Math.max(0, Math.min(fromSlot, toSlot));
+  const hi = Math.min(SLOTS - 1, Math.max(fromSlot, toSlot));
+  if (hi < lo) return blocks;
 
-    // Grow into the neighbours when they are the same activity.
-    const prev = out[out.length - 1];
-    if (prev && prev.key === activity.key && prev.endMin === s) {
-      s = prev.startMin;
-      out.pop();
-    }
-    const nextAt = out.findIndex(b => b.startMin === e);
-    if (nextAt >= 0 && out[nextAt].key === activity.key) {
-      e = out[nextAt].endMin;
-      out.splice(nextAt, 1);
-    }
+  const start = lo * SLOT_MIN;
+  const end = (hi + 1) * SLOT_MIN;
+  const out = cutRange(blocks, start, end);
 
-    out.push({
-      id: uid('b'),
-      key: activity.key,
-      label: activity.label,
-      kind: activity.kind,
-      startMin: s,
-      endMin: e,
-    });
-  }
+  // Nothing to paint — the drag was an eraser.
+  if (!activity) return mergeBlocks(out);
+
+  // Grow into a neighbour of the same activity rather than leaving a seam.
+  let s = start;
+  let e = end;
+  const prevAt = out.findIndex(b => b.key === activity.key && b.endMin === start);
+  if (prevAt >= 0) { s = out[prevAt].startMin; out.splice(prevAt, 1); }
+  const nextAt = out.findIndex(b => b.key === activity.key && b.startMin === end);
+  if (nextAt >= 0) { e = out[nextAt].endMin; out.splice(nextAt, 1); }
+
+  out.push({
+    id: uid('b'),
+    key: activity.key,
+    label: activity.label,
+    kind: activity.kind,
+    startMin: s,
+    endMin: e,
+  });
 
   return mergeBlocks(out);
+}
+
+/**
+ * Move a block to a new start, keeping its length.
+ *
+ * The start is snapped to the grid and the block never falls off either end of
+ * the day. Whatever the block lands on is cut out of the way — dropping a block
+ * on top of another replaces that part of the day — and the time it left behind
+ * becomes free again.
+ */
+export function moveBlock(blocks, id, startMin) {
+  const b = blocks.find(x => x.id === id);
+  if (!b) return blocks;
+  const len = b.endMin - b.startMin;
+  const start = snap(startMin, 0, DAY_MIN - len);
+  const end = start + len;
+  if (start === b.startMin) return blocks;
+  return sortBlocks([...cutRange(blocks, start, end, id), { ...b, startMin: start, endMin: end }]);
+}
+
+/**
+ * Drag one edge of a block to a new time.
+ *
+ * `edge` is 'start' or 'end'; the block keeps at least one slot of length and
+ * cuts into whatever it grows over.
+ */
+export function resizeBlockTo(blocks, id, edge, minute) {
+  const b = blocks.find(x => x.id === id);
+  if (!b) return blocks;
+  const start = edge === 'start'
+    ? Math.min(b.endMin - SLOT_MIN, snap(minute))
+    : b.startMin;
+  const end = edge === 'end'
+    ? Math.max(b.startMin + SLOT_MIN, snap(minute))
+    : b.endMin;
+  if (start === b.startMin && end === b.endMin) return blocks;
+  return sortBlocks([...cutRange(blocks, start, end, id), { ...b, startMin: start, endMin: end }]);
 }
 
 /** Remove a whole block. */

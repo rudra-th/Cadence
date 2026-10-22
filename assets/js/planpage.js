@@ -1,28 +1,42 @@
 /**
  * Cadence — the plan page controller.
  *
- * The plan page owns the day grid, tasks, timetable import, saving a plan to
- * the timer, downloading a PDF, and "Continue Timetable". The clock page owns
- * the timer itself. They talk through the shared runtime and the store.
+ * The plan page owns the day grid, the tasks, timetable import, saving a plan
+ * to the timer, downloading a PDF, and handing the day over to the clock.
+ * The clock page owns the timer itself. They talk through the shared runtime
+ * and the store.
+ *
+ * The grid is a paint tool. Pick an activity, press on a square and drag:
+ * every square the pointer crosses ends up holding that activity. The drag
+ * runs straight through noon into the second column, and dragging back over
+ * your own work never leaves a seam behind.
  */
 
-import { load, save, getPlan, setPlan, savePlanForTimer } from './store.js';
+import { load, save, saveNow, getPlan, setPlan, savePlanForTimer } from './store.js';
 import {
-  SLOT_MIN, SLOTS, activityMap, toneOf, codeOf,
-  paintSlot, removeBlock, planSummary, blockRangeLabel, customActivitiesFor, dayProgress, pendingWork, resizeBlock,
+  SLOT_MIN, DAY_MIN, activityMap, toneOf,
+  paintRange, removeBlock, mergeBlocks, moveBlock, resizeBlockTo,
+  planSummary, blockRangeLabel, dayProgress,
 } from './plan.js';
-import { dateKey, shiftKey, labelDate, clockLabel, humanDuration, minutesOfDay, uid } from './util.js';
+import { dateKey, shiftKey, labelDate, clockLabel, humanDuration, minutesOfDay, uid, clamp } from './util.js';
 import { importTimetable, importErrorMessage } from './timetable-import.js';
-import { buildPlanPdf, downloadPlanPdf } from './pdfwrite.js';
+import { downloadPlanPdf } from './pdfwrite.js';
 import { handOverToClock, runningSession } from './runtime.js';
 
-const HALF = 24;
-const COL_MIN = 720;
+const HALF = 24;              // squares in one column (12 hours)
+const COL_MIN = 720;          // minutes in one column
+const COLS = 2;
+const LEAVE_MARGIN = 64;      // px outside the grid where a drag gives up
 
 let state = load();
 let currentDate = dateKey(Date.now());
-let painting = false;
+let current = getPlan(state, currentDate);   // the plan that is on screen
+let brushKey = state.settings.brush || 'self_study';
 let eraseMode = false;
+let selectedId = '';
+let drag = null;              // the gesture in progress, if any
+let history = [];             // undo
+let future = [];              // redo
 
 const $ = (id) => document.getElementById(id);
 
@@ -38,7 +52,10 @@ const el = {
   planGutters: [document.querySelector('.grid__gutter[data-col="0"]'), document.querySelector('.grid__gutter[data-col="1"]')],
   planPicker: $('planPicker'),
   planAddActivity: $('planAddActivity'),
-  planBlocks: $('planBlocks'),
+  planInspector: $('planInspector'),
+  inspDot: $('inspDot'),
+  inspTitle: $('inspTitle'),
+  inspMeta: $('inspMeta'),
   planTaskForm: $('planTaskForm'),
   planTaskInput: $('planTaskInput'),
   planTaskStage: $('planTaskStage'),
@@ -46,20 +63,14 @@ const el = {
   planTaskCount: $('planTaskCount'),
   planImport: $('planImport'),
   planImportFile: $('planImportFile'),
+  planStart: $('planStart'),
   planSaveTimer: $('planSaveTimer'),
   planDownloadPdf: $('planDownloadPdf'),
   planCopy: $('planCopy'),
   planClear: $('planClear'),
-  ttDrop: $('ttDrop'),
-  ttPick: $('ttPick'),
-  ttFile: $('ttFile'),
-  ttBanner: $('ttBanner'),
-  ttContinueBtn: $('ttContinueBtn'),
-  ttCurrent: $('ttCurrent'),
-  ttNext: $('ttNext'),
-  ttPlanTaskCount: $('ttPlanTaskCount'),
-  ttPlanTaskList: $('ttPlanTaskList'),
-  ttPlanSubjects: $('ttPlanSubjects'),
+  planUndo: $('planUndo'),
+  planRedo: $('planRedo'),
+  planNow: $('planNow'),
   planRuntimeChip: $('planRuntimeChip'),
   planRuntimeText: $('planRuntimeText'),
   planThemeBtn: $('planThemeBtn'),
@@ -68,7 +79,10 @@ const el = {
   copyClose: $('copyClose'),
   copyOptions: $('copyOptions'),
   copyCancel: $('copyCancel'),
+  dropOverlay: $('dropOverlay'),
 };
+
+/* ── small helpers ────────────────────────────────────────── */
 
 function showToast(msg) {
   if (!el.toast) return;
@@ -78,19 +92,23 @@ function showToast(msg) {
   showToast.t = setTimeout(() => { el.toast.hidden = true; }, 1800);
 }
 
-function plan() { return getPlan(state, currentDate); }
-function writePlan(next) { setPlan(state, currentDate, next); state = load(); render(); }
+function escapeHtml(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 function activities() { return activityMap(state.activities); }
+
+function blocks() { return Array.isArray(current.blocks) ? current.blocks : []; }
+
+function tasks() { return Array.isArray(current.tasks) ? current.tasks : []; }
+
+/** The activity the brush is holding, or null when the brush is an eraser. */
 function brushActivity() {
   if (eraseMode) return null;
   const map = activities();
-  const key = state.settings.brush;
-  return map.get(key) || map.get('self_study') || { key: 'self_study', label: 'Self study', kind: 'study' };
-}
-
-function escapeHtml(text) {
-  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return map.get(brushKey)
+    || map.get('self_study')
+    || { key: 'self_study', label: 'Self study', kind: 'study' };
 }
 
 function updateRuntimeChip() {
@@ -104,28 +122,113 @@ function updateRuntimeChip() {
   }
 }
 
+/* ── history ──────────────────────────────────────────────── */
+
+/**
+ * The day as it is right now, ready to be put back later.
+ *
+ * `blocksSnapshot` is for a change that has already happened in memory — a
+ * drag paints as it goes, so the state on screen is the *result* of the
+ * gesture and the snapshot has to be the one taken when it started.
+ */
+function snapshot(blocksSnapshot) {
+  return {
+    date: currentDate,
+    blocks: (blocksSnapshot || blocks()).map(b => ({ ...b })),
+    tasks: tasks().map(t => ({ ...t })),
+    imported: current.imported ? { ...current.imported } : null,
+    done: { ...(current.done || {}) },
+  };
+}
+
+function remember(blocksSnapshot) {
+  history.push(snapshot(blocksSnapshot));
+  if (history.length > 80) history.shift();
+  future.length = 0;
+}
+
+/** Put a remembered day back on screen. */
+function restore(entry) {
+  currentDate = entry.date;
+  current = {
+    date: entry.date,
+    blocks: entry.blocks,
+    tasks: entry.tasks,
+    imported: entry.imported || null,
+    done: entry.done || {},
+    updatedAt: Date.now(),
+  };
+  selectedId = '';
+}
+
+function undo() {
+  const entry = history.pop();
+  if (!entry) { showToast('Nothing to undo'); return; }
+  future.push(snapshot());
+  restore(entry);
+  commit();
+}
+
+function redo() {
+  const entry = future.pop();
+  if (!entry) { showToast('Nothing to redo'); return; }
+  history.push(snapshot());
+  restore(entry);
+  commit();
+}
+
+/* ── writing ──────────────────────────────────────────────── */
+
+/**
+ * Put the plan on screen back into the store.
+ *
+ * The write is immediate — the plan is the one thing on this page that must
+ * survive the tab being closed, and the debounce in the store would leave the
+ * last few seconds of painting on the floor.
+ */
+function commit() {
+  setPlan(state, currentDate, current);
+  saveNow(state);
+  render();
+}
+
+function writeBlocks(next) {
+  current.blocks = mergeBlocks(next);
+  commit();
+}
+
+/* ── rendering ────────────────────────────────────────────── */
+
 function render() {
-  const p = plan();
-  const summary = planSummary(p);
-  const today = dateKey(Date.now());
-  const isToday = currentDate === today;
+  renderHeader();
+  renderWeekStrip();
+  renderGrid();
+  renderPicker();
+  renderInspector();
+  renderTasks();
+  renderNow();
+  updateGridHint();
+  updateRuntimeChip();
+}
+
+function renderHeader() {
+  if (!el.planTitle) return;
+  const summary = planSummary(current);
+  const isToday = currentDate === dateKey(Date.now());
 
   el.planTitle.textContent = labelDate(currentDate, { weekday: 'long', day: 'numeric', month: 'long' });
+
   const bits = [];
   if (isToday) bits.push('Today');
   bits.push(`${summary.blocks} block${summary.blocks === 1 ? '' : 's'}`);
   if (summary.studyMin) bits.push(`${humanDuration(summary.studyMin * 60000)} study`);
+  if (summary.restMin) bits.push(`${humanDuration(summary.restMin * 60000)} rest`);
   if (summary.freeMin) bits.push(`${humanDuration(summary.freeMin * 60000)} free`);
   if (summary.tasks) bits.push(`${summary.tasksDone}/${summary.tasks} tasks`);
   el.planSub.textContent = bits.join(' · ');
 
-  renderWeekStrip();
-  renderGrid(p);
-  renderBlockList(p);
-  renderTasks(p);
-  renderPicker();
-  renderTimetableCard(p);
-  updateRuntimeChip();
+  if (el.planUndo) el.planUndo.disabled = !history.length;
+  if (el.planRedo) el.planRedo.disabled = !future.length;
 }
 
 function renderWeekStrip() {
@@ -136,29 +239,25 @@ function renderWeekStrip() {
   for (let i = -3; i <= 3; i += 1) {
     const key = shiftKey(currentDate, i);
     const pp = getPlan(state, key);
-    const has = pp.blocks.length > 0;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'weekday';
     if (key === currentDate) btn.setAttribute('aria-current', 'date');
-    btn.dataset.has = has ? 'true' : 'false';
+    btn.dataset.has = pp.blocks.length ? 'true' : 'false';
     btn.dataset.today = key === today ? 'true' : 'false';
     btn.title = labelDate(key, { weekday: 'long', day: 'numeric', month: 'long' });
     btn.innerHTML = `<span class="weekday__name">${labelDate(key, { weekday: 'short' })}</span><span class="weekday__num">${key.slice(8)}</span><span class="weekday__dot"></span>`;
-    btn.addEventListener('click', () => { currentDate = key; render(); });
+    btn.addEventListener('click', () => goToDate(key));
     strip.appendChild(btn);
   }
 }
 
-function renderGrid(p) {
-  const map = activities();
+/** The hour labels beside each column. They never change, so they are built once. */
+function buildGutters() {
   for (const col of [0, 1]) {
-    const track = el.planTracks[col];
     const gutter = el.planGutters[col];
-    if (!track || !gutter) continue;
-    track.innerHTML = '';
+    if (!gutter) continue;
     gutter.innerHTML = '';
-
     for (let row = 0; row < HALF; row += 1) {
       const mins = col * COL_MIN + row * SLOT_MIN;
       const label = document.createElement('span');
@@ -166,14 +265,31 @@ function renderGrid(p) {
       if (mins % 60 === 0) {
         label.textContent = clockLabel(mins).replace(':00', '');
         label.classList.add('is-hour');
-      } else if (mins % 30 === 0) {
-        label.textContent = clockLabel(mins).split(':')[1] === '30' ? ':30' : '';
-        if (label.textContent) label.classList.add('is-half');
+      } else {
+        label.textContent = ':30';
+        label.classList.add('is-half');
       }
       gutter.appendChild(label);
     }
+  }
+}
 
-    for (const b of p.blocks) {
+function renderGrid() {
+  const map = activities();
+  const isToday = currentDate === dateKey(Date.now());
+  const mins = minutesOfDay();
+
+  for (const col of [0, 1]) {
+    const track = el.planTracks[col];
+    if (!track) continue;
+    track.innerHTML = '';
+
+    if (drag && drag.mode === 'paint') {
+      const preview = previewEl(drag.anchorSlot, drag.currentSlot, col);
+      if (preview) track.appendChild(preview);
+    }
+
+    for (const b of blocks()) {
       const localStart = b.startMin - col * COL_MIN;
       const localEnd = b.endMin - col * COL_MIN;
       if (localEnd <= 0 || localStart >= COL_MIN) continue;
@@ -182,21 +298,11 @@ function renderGrid(p) {
       const rowStart = Math.floor(from / SLOT_MIN);
       const rowEnd = Math.ceil(to / SLOT_MIN);
       if (rowEnd <= rowStart) continue;
-      const act = map.get(b.key);
-      const elb = document.createElement('div');
-      elb.className = 'grid__block';
-      elb.dataset.key = b.key;
-      elb.dataset.tone = String(toneOf(b.key));
-      elb.dataset.kind = act?.kind || b.kind;
-      elb.style.setProperty('--row', String(rowStart));
-      elb.style.setProperty('--span', String(rowEnd - rowStart));
-      elb.title = `${b.label} · ${blockRangeLabel(b)}`;
-      elb.innerHTML = `<span class="grid__blocklabel">${escapeHtml(b.label)}</span><span class="grid__blockcode">${escapeHtml(codeOf(b.label))} · ${humanDuration((b.endMin - b.startMin) * 60000)}</span>`;
-      track.appendChild(elb);
+      track.appendChild(blockEl(b, rowStart, rowEnd - rowStart, map,
+        b.startMin >= col * COL_MIN, b.endMin <= (col + 1) * COL_MIN));
     }
 
-    if (currentDate === dateKey(Date.now())) {
-      const mins = minutesOfDay();
+    if (isToday) {
       const local = mins - col * COL_MIN;
       if (local >= 0 && local < COL_MIN) {
         const now = document.createElement('div');
@@ -208,105 +314,85 @@ function renderGrid(p) {
   }
 }
 
-function renderBlockList(p) {
-  const list = el.planBlocks;
-  if (!list) return;
-  list.innerHTML = '';
-  if (!p.blocks.length) {
-    list.innerHTML = '<p class="empty">Nothing planned yet. Pick an activity and drag across the grid.</p>';
-    return;
+/**
+ * One block on the grid.
+ *
+ * A block that runs through noon is drawn twice — once in each column. Only
+ * the first part carries the name, and only the real start and the real end
+ * get a resize handle; the join at noon is just the same block carrying on, so
+ * dragging there moves it instead of trimming it to the column edge.
+ */
+function blockEl(b, row, span, map, first, last) {
+  const act = map.get(b.key);
+  const elb = document.createElement('div');
+  elb.className = 'grid__block';
+  elb.dataset.id = b.id;
+  elb.dataset.key = b.key;
+  elb.dataset.kind = act?.kind || b.kind || 'study';
+  elb.dataset.tone = String(toneOf(b.key));
+  if (b.id === selectedId) elb.classList.add('is-selected');
+  if (span < 2) elb.classList.add('is-short');
+  if (!first) elb.classList.add('is-continued');
+  elb.style.setProperty('--row', String(row));
+  elb.style.setProperty('--span', String(span));
+  elb.title = `${b.label} · ${blockRangeLabel(b)}`;
+  const parts = [
+    '<span class="grid__grip" data-handle="move" aria-hidden="true"></span>',
+  ];
+  if (first) {
+    parts.push(`<span class="grid__blocklabel">${escapeHtml(b.label)}</span>`);
+    parts.push(`<span class="grid__blockdur">${escapeHtml(humanDuration((b.endMin - b.startMin) * 60000))}</span>`);
   }
-  const sorted = [...p.blocks].sort((a,b) => a.startMin - b.startMin);
-  for (const b of sorted) {
-    const row = document.createElement('div');
-    row.className = 'blockrow';
-    row.dataset.tone = String(toneOf(b.key));
-    row.dataset.kind = b.kind;
-
-    const main = document.createElement('div');
-    main.className = 'blockrow__main';
-    const title = document.createElement('span');
-    title.className = 'blockrow__title';
-    title.textContent = b.label;
-    const sub = document.createElement('span');
-    sub.className = 'blockrow__sub';
-    sub.textContent = `${blockRangeLabel(b)} · ${humanDuration((b.endMin - b.startMin) * 60000)}`;
-    main.append(title, sub);
-
-    const actions = document.createElement('div');
-    actions.className = 'blockrow__actions';
-
-    const shrink = document.createElement('button');
-    shrink.type = 'button';
-    shrink.className = 'icon-btn icon-btn--sm';
-    shrink.setAttribute('aria-label', `Shorten ${b.label} by 30 min`);
-    shrink.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 12h14"/></svg>';
-    shrink.addEventListener('click', () => writePlan({ ...plan(), blocks: resizeBlock(plan().blocks, b.id, 'end', -30) }));
-
-    const grow = document.createElement('button');
-    grow.type = 'button';
-    grow.className = 'icon-btn icon-btn--sm';
-    grow.setAttribute('aria-label', `Extend ${b.label} by 30 min`);
-    grow.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
-    grow.addEventListener('click', () => writePlan({ ...plan(), blocks: resizeBlock(plan().blocks, b.id, 'end', 30) }));
-
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'icon-btn icon-btn--sm';
-    del.setAttribute('aria-label', `Remove ${b.label}`);
-    del.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-    del.addEventListener('click', () => writePlan({ ...plan(), blocks: removeBlock(plan().blocks, b.id) }));
-    actions.append(shrink, grow, del);
-
-    row.append(main, actions);
-    list.appendChild(row);
-  }
+  if (first) parts.push('<span class="grid__edge grid__edge--top" data-handle="start"></span>');
+  if (last) parts.push('<span class="grid__edge grid__edge--bottom" data-handle="end"></span>');
+  elb.innerHTML = parts.join('');
+  return elb;
 }
 
-function renderTasks(p) {
-  const list = el.planTasks;
-  if (!list) return;
-  list.innerHTML = '';
-  if (el.planTaskCount) el.planTaskCount.textContent = p.tasks.length ? `· ${p.tasks.filter(t => t.done).length}/${p.tasks.length}` : '';
+/** The outline of the range being dragged. */
+function previewEl(fromSlot, toSlot, col) {
+  const lo = Math.min(fromSlot, toSlot);
+  const hi = Math.max(fromSlot, toSlot);
+  const startMin = lo * SLOT_MIN;
+  const endMin = (hi + 1) * SLOT_MIN;
+  const localStart = startMin - col * COL_MIN;
+  const localEnd = endMin - col * COL_MIN;
+  if (localEnd <= 0 || localStart >= COL_MIN) return null;
 
-  if (!p.tasks.length) {
-    list.innerHTML = '<p class="empty">No tasks for this day yet.</p>';
-    return;
+  const from = Math.max(0, localStart);
+  const to = Math.min(COL_MIN, localEnd);
+  const rowStart = Math.floor(from / SLOT_MIN);
+  const rowEnd = Math.ceil(to / SLOT_MIN);
+  if (rowEnd <= rowStart) return null;
+
+  const d = document.createElement('div');
+  d.className = 'grid__preview';
+  d.style.setProperty('--row', String(rowStart));
+  d.style.setProperty('--span', String(rowEnd - rowStart));
+  d.innerHTML = `<span class="grid__previewtime">${escapeHtml(clockLabel(startMin))} – ${escapeHtml(clockLabel(endMin))}</span>`;
+  return d;
+}
+
+/** The bar under the grid that edits the block you picked. */
+function renderInspector() {
+  const bar = el.planInspector;
+  if (!bar) return;
+  const b = blocks().find(x => x.id === selectedId);
+  if (!b) { bar.hidden = true; return; }
+  bar.hidden = false;
+
+  const map = activities();
+  const act = map.get(b.key);
+  if (el.inspDot) {
+    el.inspDot.dataset.kind = act?.kind || b.kind || 'study';
+    el.inspDot.dataset.tone = String(toneOf(b.key));
   }
-  for (const t of p.tasks) {
-    const row = document.createElement('div');
-    row.className = 'taskrow';
-    row.dataset.done = t.done ? 'true' : 'false';
-
-    const check = document.createElement('button');
-    check.type = 'button';
-    check.className = 'taskcheck';
-    check.setAttribute('aria-label', t.done ? `Mark "${t.text}" as not done` : `Mark "${t.text}" as done`);
-    check.innerHTML = t.done ? '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>' : '';
-    check.addEventListener('click', () => {
-      const tasks = plan().tasks.map(x => (x.id === t.id ? { ...x, done: !x.done } : x));
-      writePlan({ ...plan(), tasks });
-    });
-
-    const text = document.createElement('span');
-    text.className = 'taskrow__text';
-    text.textContent = t.text;
-    if (t.stage) {
-      const stage = document.createElement('span');
-      stage.className = 'taskrow__stage';
-      stage.textContent = t.stage;
-      text.appendChild(stage);
-    }
-
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'icon-btn icon-btn--sm';
-    del.setAttribute('aria-label', `Delete ${t.text}`);
-    del.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-    del.addEventListener('click', () => writePlan({ ...plan(), tasks: plan().tasks.filter(x => x.id !== t.id) }));
-
-    row.append(check, text, del);
-    list.appendChild(row);
+  if (el.inspTitle) el.inspTitle.textContent = b.label;
+  if (el.inspMeta) {
+    el.inspMeta.textContent = `${blockRangeLabel(b)} · ${humanDuration((b.endMin - b.startMin) * 60000)}`;
+  }
+  for (const btn of bar.querySelectorAll('[data-act]')) {
+    if (btn.dataset.act === 'delete') btn.classList.add('is-danger');
   }
 }
 
@@ -315,8 +401,7 @@ function renderPicker() {
   if (!picker) return;
   picker.innerHTML = '';
   const map = activities();
-  const current = brushActivity();
-  const brushKey = eraseMode ? '' : (current ? current.key : '');
+  const active = brushActivity();
 
   for (const a of map.values()) {
     const btn = document.createElement('button');
@@ -324,14 +409,9 @@ function renderPicker() {
     btn.className = 'pick';
     btn.dataset.tone = String(toneOf(a.key));
     btn.dataset.kind = a.kind;
-    btn.setAttribute('aria-pressed', String(a.key === brushKey));
-    btn.innerHTML = `<span class="pick__dot"></span><span class="pick__label">${escapeHtml(a.label)}</span><span class="pick__code">${escapeHtml(codeOf(a.label))}</span>`;
-    btn.addEventListener('click', () => {
-      eraseMode = false;
-      state.settings.brush = a.key;
-      save(state);
-      renderPicker();
-    });
+    btn.setAttribute('aria-pressed', String(!eraseMode && a.key === active?.key));
+    btn.innerHTML = `<span class="pick__dot"></span><span class="pick__label">${escapeHtml(a.label)}</span>`;
+    btn.addEventListener('click', () => pickActivity(a));
     picker.appendChild(btn);
   }
 
@@ -340,102 +420,451 @@ function renderPicker() {
   erase.className = 'pick pick--erase';
   erase.setAttribute('aria-pressed', String(eraseMode));
   erase.innerHTML = '<span class="pick__dot"></span><span class="pick__label">Erase</span>';
-  erase.addEventListener('click', () => { eraseMode = !eraseMode; renderPicker(); });
+  erase.addEventListener('click', () => {
+    eraseMode = !eraseMode;
+    if (!eraseMode) brushKey = state.settings.brush || 'self_study';
+    renderPicker();
+    updateGridHint();
+  });
   picker.appendChild(erase);
 }
 
-function renderTimetableCard(p) {
-  const mins = minutesOfDay();
-  const isToday = currentDate === dateKey(Date.now());
-  const { current, next } = dayProgress(p.blocks, mins, isToday);
+/**
+ * Choose the activity the brush holds.
+ *
+ * If a block is picked, the activity goes to that block as well — one click
+ * changes what the block says and what the next drag will paint.
+ */
+function pickActivity(a) {
+  eraseMode = false;
+  brushKey = a.key;
+  state.settings.brush = a.key;
+  save(state);
 
-  if (el.ttCurrent) el.ttCurrent.textContent = current ? `${current.label} · ${blockRangeLabel(current)}` : (p.blocks.length ? 'No block running now' : '—');
-  if (el.ttNext) el.ttNext.textContent = next ? `${next.label} · ${blockRangeLabel(next)}` : (current ? 'Plan complete' : (p.blocks.length ? '—' : '—'));
-
-  const pw = pendingWork(p);
-  if (el.ttPlanTaskCount) el.ttPlanTaskCount.textContent = `${pw.left}/${pw.total}`;
-
-  if (el.ttPlanTaskList) {
-    el.ttPlanTaskList.innerHTML = '';
-    if (!pw.tasks.length) {
-      el.ttPlanTaskList.innerHTML = '<p class="hint">No tasks</p>';
-    } else {
-      for (const t of pw.tasks.slice(0, 6)) {
-        const row = document.createElement('div');
-        row.className = 'timetable-taskrow';
-        row.textContent = t.done ? `✓ ${t.text}` : `• ${t.text}`;
-        el.ttPlanTaskList.appendChild(row);
-      }
-      if (pw.tasks.length > 6) {
-        const more = document.createElement('div');
-        more.className = 'hint';
-        more.textContent = `+${pw.tasks.length - 6} more`;
-        el.ttPlanTaskList.appendChild(more);
-      }
+  if (selectedId) {
+    const b = blocks().find(x => x.id === selectedId);
+    if (b && b.key !== a.key) {
+      remember();
+      const next = blocks().map(x => (x.id === b.id
+        ? { ...x, key: a.key, label: a.label, kind: a.kind }
+        : x));
+      current.blocks = mergeBlocks(next);
+      selectedId = '';
+      commit();
+      return;
     }
   }
+  renderPicker();
+  updateGridHint();
+}
 
-  if (el.ttPlanSubjects) {
-    const subjects = Array.isArray(p.imported?.subjects) ? p.imported.subjects : [];
-    if (subjects.length) {
-      el.ttPlanSubjects.hidden = false;
-      el.ttPlanSubjects.innerHTML = subjects.map(s => `<span class="subject-pill">${escapeHtml(s.name)} ${s.done}/${s.total}</span>`).join('');
-    } else {
-      el.ttPlanSubjects.hidden = true;
-      el.ttPlanSubjects.innerHTML = '';
-    }
+function updateGridHint() {
+  const hint = $('gridHint');
+  if (!hint) return;
+  if (eraseMode) { hint.textContent = 'Erasing — drag across the squares you want to clear.'; return; }
+  const a = brushActivity();
+  hint.textContent = a
+    ? `Drag across the grid to fill every square you cross with ${a.label.toLowerCase()}.`
+    : 'Pick an activity, then drag across the grid.';
+}
+
+/** What is running right now, and what comes after it. */
+function renderNow() {
+  const bar = el.planNow;
+  if (!bar) return;
+  const isToday = currentDate === dateKey(Date.now());
+  const mins = minutesOfDay();
+  const { current: cur, next } = dayProgress(blocks(), mins, isToday);
+
+  if (!blocks().length) {
+    bar.hidden = true;
+    if (el.planStart) el.planStart.disabled = true;
+    return;
+  }
+  bar.hidden = false;
+  if (el.planStart) el.planStart.disabled = !(cur || next);
+
+  const label = cur ? 'Now' : (isToday ? 'Next up' : 'Starts');
+  const value = cur || next;
+  bar.innerHTML = [
+    `<span class="nowbar__label">${escapeHtml(label)}</span>`,
+    `<span class="nowbar__value">${value ? escapeHtml(value.label) : '—'}</span>`,
+    value ? `<span class="nowbar__time">${escapeHtml(blockRangeLabel(value))}</span>` : '',
+  ].join('');
+}
+
+/* ── tasks ────────────────────────────────────────────────── */
+
+function renderTasks() {
+  const list = el.planTasks;
+  if (!list) return;
+  list.innerHTML = '';
+
+  const all = tasks();
+  const done = all.filter(t => t.done).length;
+  if (el.planTaskCount) el.planTaskCount.textContent = all.length ? `· ${done}/${all.length}` : '';
+
+  if (!all.length) {
+    list.innerHTML = '<p class="empty">No tasks for this day yet.</p>';
+    return;
+  }
+
+  // Tasks are grouped by their stage, the way the study list is grouped by
+  // subject — it makes a long list readable at a glance.
+  const groups = new Map();
+  for (const t of all) {
+    const name = t.stage || 'General';
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(t);
+  }
+
+  for (const [stage, items] of groups) {
+    const section = document.createElement('section');
+    section.className = 'taskgroup';
+
+    const head = document.createElement('div');
+    head.className = 'taskgroup__head';
+    const groupDone = items.filter(t => t.done).length;
+    head.innerHTML = `<span class="taskgroup__name">${escapeHtml(stage)}</span><span class="taskgroup__count">${groupDone}/${items.length}</span>`;
+    section.appendChild(head);
+
+    for (const t of items) section.appendChild(taskRow(t));
+    list.appendChild(section);
   }
 }
 
-function slotFromEvent(e, track) {
-  const rect = track.getBoundingClientRect();
-  const slotH = rect.height / HALF;
-  const row = Math.floor((e.clientY - rect.top) / slotH);
-  if (row < 0 || row >= HALF) return -1;
-  const col = Number(track.dataset.col);
+function taskRow(t) {
+  const row = document.createElement('div');
+  row.className = 'taskrow';
+  row.dataset.done = t.done ? 'true' : 'false';
+
+  const check = document.createElement('button');
+  check.type = 'button';
+  check.className = 'taskcheck';
+  check.setAttribute('aria-label', t.done ? `Mark "${t.text}" as not done` : `Mark "${t.text}" as done`);
+  check.innerHTML = t.done ? '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>' : '';
+  check.addEventListener('click', () => {
+    remember();
+    current.tasks = tasks().map(x => (x.id === t.id ? { ...x, done: !x.done } : x));
+    commit();
+  });
+
+  const text = document.createElement('span');
+  text.className = 'taskrow__text';
+  text.textContent = t.text;
+
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'icon-btn icon-btn--sm';
+  del.setAttribute('aria-label', `Delete ${t.text}`);
+  del.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  del.addEventListener('click', () => {
+    remember();
+    current.tasks = tasks().filter(x => x.id !== t.id);
+    commit();
+  });
+
+  row.append(check, text, del);
+  return row;
+}
+
+/* ── the grid: painting, moving, resizing ─────────────────── */
+
+/**
+ * Which square of the day sits under the pointer.
+ *
+ * The day is two columns of twelve hours. A column is found by looking for
+ * the track that actually holds the pointer — checked in both directions, so
+ * the stacked layout on a narrow screen works as well as the side-by-side one
+ * — and then falling back to the hour labels beside it, and finally to the
+ * nearest track of all.
+ *
+ * @returns {number} a slot from 0 to 47, or -1 when the pointer is nowhere near
+ */
+function slotFromPoint(x, y) {
+  let col = -1;
+  let row = 0;
+
+  // The pointer is over a track.
+  for (let c = 0; c < COLS; c += 1) {
+    const r = el.planTracks[c]?.getBoundingClientRect();
+    if (!r || !r.height) continue;
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+      return c * HALF + rowIn(r, y);
+    }
+  }
+
+  // The pointer is over the hour labels beside a track.
+  for (let c = 0; c < COLS; c += 1) {
+    const r = el.planGutters[c]?.getBoundingClientRect();
+    if (!r || !r.height) continue;
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+      return c * HALF + rowIn(r, y);
+    }
+  }
+
+  // The pointer is off the grid — use the closest track. The horizontal
+  // distance decides (so the right column wins however far down the pointer
+  // is), and the vertical one only breaks ties in the stacked layout.
+  let best = Infinity;
+  for (let c = 0; c < COLS; c += 1) {
+    const r = el.planTracks[c]?.getBoundingClientRect();
+    if (!r || !r.height) continue;
+    const dx = x < r.left ? r.left - x : (x > r.right ? x - r.right : 0);
+    const dy = y < r.top ? r.top - y : (y > r.bottom ? y - r.bottom : 0);
+    const d = dx * 1e4 + dy;
+    if (d < best) { best = d; col = c; row = rowIn(r, y); }
+  }
+  if (col < 0) return -1;
   return col * HALF + row;
 }
 
-function paintAt(slot) {
-  if (slot < 0 || slot >= SLOTS) return;
-  const activity = brushActivity();
-  const next = paintSlot(plan().blocks, slot, activity);
-  writePlan({ ...plan(), blocks: next });
+/** The row of a track a vertical position falls on. */
+function rowIn(rect, y) {
+  return clamp(Math.floor((y - rect.top) / (rect.height / HALF)), 0, HALF - 1);
 }
 
-function bindEvents() {
-  el.planPrev?.addEventListener('click', () => { currentDate = shiftKey(currentDate, -1); render(); });
-  el.planNext?.addEventListener('click', () => { currentDate = shiftKey(currentDate, 1); render(); });
-  el.planToday?.addEventListener('click', () => { currentDate = dateKey(Date.now()); render(); });
+/** Is the pointer still over the grid (or close enough to it)? */
+function overGrid(x, y) {
+  const grid = el.planGrid;
+  if (!grid) return false;
+  const r = grid.getBoundingClientRect();
+  return x >= r.left - LEAVE_MARGIN && x <= r.right + LEAVE_MARGIN
+    && y >= r.top - LEAVE_MARGIN && y <= r.bottom + LEAVE_MARGIN;
+}
 
-  el.planGrid?.addEventListener('pointerdown', (e) => {
-    const track = e.target.closest('.grid__track');
-    if (!track) return;
-    painting = true;
-    paintAt(slotFromEvent(e, track));
-    try { track.setPointerCapture?.(e.pointerId); } catch {}
+/**
+ * Paint the range the pointer is crossing.
+ *
+ * The range is always painted from the blocks the day started the drag with,
+ * so dragging back and forth lands on the same result every time.
+ */
+function paintRangeTo(fromSlot, toSlot) {
+  if (!drag) return;
+  const activity = brushActivity();
+  current.blocks = paintRange(drag.base, fromSlot, toSlot, activity);
+  renderGrid();
+  renderHeader();
+}
+
+function onPointerDown(e) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+  const slot = slotFromPoint(e.clientX, e.clientY);
+  if (slot < 0) return;
+
+  const handle = e.target.closest('[data-handle]');
+  const blockEl = e.target.closest('.grid__block');
+
+  if (handle && blockEl) {
+    const b = blocks().find(x => x.id === blockEl.dataset.id);
+    if (!b) return;
     e.preventDefault();
+    e.stopPropagation();
+    if (handle.dataset.handle === 'move') {
+      drag = { mode: 'move', blockId: b.id, base: blocks(), grab: slot * SLOT_MIN - b.startMin, last: null };
+    } else {
+      drag = { mode: 'resize', blockId: b.id, edge: handle.dataset.handle, base: blocks(), last: null };
+    }
+    capture(e);
+    return;
+  }
+
+  e.preventDefault();
+  selectedId = '';
+
+  if (blockEl) {
+    // A press on a block may turn into a drag that repaints it. If it never
+    // moves, it is a click and the block gets picked instead.
+    drag = { mode: 'maybe', anchorSlot: slot, currentSlot: slot, base: blocks(), blockId: blockEl.dataset.id, moved: false };
+  } else {
+    drag = { mode: 'paint', anchorSlot: slot, currentSlot: slot, base: blocks(), moved: false };
+    paintRangeTo(slot, slot);
+  }
+  capture(e);
+}
+
+function capture(e) {
+  try { el.planGrid.setPointerCapture?.(e.pointerId); } catch { /* not supported */ }
+}
+
+function onPointerMove(e) {
+  if (!drag) return;
+  if (!overGrid(e.clientX, e.clientY)) { cancelDrag(); return; }
+
+  const slot = slotFromPoint(e.clientX, e.clientY);
+  if (slot < 0) return;
+
+  if (drag.mode === 'maybe') {
+    if (slot === drag.anchorSlot) return;
+    drag.mode = 'paint';
+    drag.moved = true;
+    drag.currentSlot = slot;
+    paintRangeTo(drag.anchorSlot, slot);
+    return;
+  }
+
+  if (drag.mode === 'paint') {
+    if (slot === drag.currentSlot) return;
+    drag.currentSlot = slot;
+    paintRangeTo(drag.anchorSlot, slot);
+    return;
+  }
+
+  if (drag.mode === 'move') {
+    const b = drag.base.find(x => x.id === drag.blockId);
+    if (!b) return;
+    const len = b.endMin - b.startMin;
+    const start = clamp(slot * SLOT_MIN - drag.grab, 0, DAY_MIN - len);
+    const snapped = Math.round(start / SLOT_MIN) * SLOT_MIN;
+    if (snapped === drag.last) return;
+    drag.last = snapped;
+    current.blocks = moveBlock(drag.base, drag.blockId, snapped);
+    renderGrid();
+    renderHeader();
+    return;
+  }
+
+  if (drag.mode === 'resize') {
+    const b = drag.base.find(x => x.id === drag.blockId);
+    if (!b) return;
+    const minute = slot * SLOT_MIN;
+    if (minute === drag.last) return;
+    drag.last = minute;
+    current.blocks = resizeBlockTo(drag.base, drag.blockId, drag.edge, minute);
+    renderGrid();
+    renderHeader();
+  }
+}
+
+function onPointerUp(e) {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  try { el.planGrid.releasePointerCapture?.(e.pointerId); } catch { /* fine */ }
+
+  if (d.mode === 'maybe') {
+    // A click, not a drag — pick the block so it can be edited.
+    selectedId = d.blockId;
+    renderGrid();
+    renderInspector();
+    return;
+  }
+
+  // Nothing changed — do not litter the history with empty steps.
+  const before = JSON.stringify(d.base);
+  const after = JSON.stringify(blocks());
+  if (before === after) { renderGrid(); return; }
+
+  remember(d.base);
+  current.blocks = mergeBlocks(blocks());
+  commit();
+}
+
+function cancelDrag() {
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  current.blocks = d.base;
+  renderGrid();
+  renderHeader();
+}
+
+/* ── dates ────────────────────────────────────────────────── */
+
+function goToDate(key) {
+  currentDate = key;
+  current = getPlan(state, key);
+  selectedId = '';
+  drag = null;
+  render();
+}
+
+/* ── editing a picked block ───────────────────────────────── */
+
+function actOnBlock(action) {
+  const b = blocks().find(x => x.id === selectedId);
+  if (!b) return;
+
+  if (action === 'close') {
+    selectedId = '';
+    renderGrid();
+    renderInspector();
+    return;
+  }
+
+  let next = blocks();
+  if (action === 'delete') {
+    next = removeBlock(next, b.id);
+    selectedId = '';
+  } else if (action === 'earlier') {
+    next = moveBlock(next, b.id, b.startMin - SLOT_MIN);
+  } else if (action === 'later') {
+    next = moveBlock(next, b.id, b.startMin + SLOT_MIN);
+  } else if (action === 'shorter') {
+    next = resizeBlockTo(next, b.id, 'end', b.endMin - SLOT_MIN);
+  } else if (action === 'longer') {
+    next = resizeBlockTo(next, b.id, 'end', b.endMin + SLOT_MIN);
+  } else {
+    return;
+  }
+
+  // A block already at the edge of the day cannot move any further.
+  if (JSON.stringify(next) === JSON.stringify(blocks())) return;
+
+  remember();
+  current.blocks = next;
+  commit();
+}
+
+/* ── events ───────────────────────────────────────────────── */
+
+function bindEvents() {
+  el.planPrev?.addEventListener('click', () => goToDate(shiftKey(currentDate, -1)));
+  el.planNext?.addEventListener('click', () => goToDate(shiftKey(currentDate, 1)));
+  el.planToday?.addEventListener('click', () => goToDate(dateKey(Date.now())));
+
+  el.planUndo?.addEventListener('click', undo);
+  el.planRedo?.addEventListener('click', redo);
+
+  // The grid: press, drag, fill.
+  el.planGrid?.addEventListener('pointerdown', onPointerDown);
+  el.planGrid?.addEventListener('pointermove', onPointerMove);
+  el.planGrid?.addEventListener('pointerup', onPointerUp);
+  el.planGrid?.addEventListener('pointercancel', cancelDrag);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', cancelDrag);
+
+  // Right-click on a block clears it.
+  el.planGrid?.addEventListener('contextmenu', (e) => {
+    const blockEl = e.target.closest('.grid__block');
+    if (!blockEl) return;
+    e.preventDefault();
+    const b = blocks().find(x => x.id === blockEl.dataset.id);
+    if (!b) return;
+    remember();
+    current.blocks = removeBlock(blocks(), b.id);
+    if (selectedId === b.id) selectedId = '';
+    commit();
   });
-  el.planGrid?.addEventListener('pointermove', (e) => {
-    if (!painting) return;
-    const track = e.target.closest('.grid__track');
-    if (!track) return;
-    paintAt(slotFromEvent(e, track));
+
+  // The inspector under the grid.
+  el.planInspector?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    actOnBlock(btn.dataset.act);
   });
-  const stopPainting = () => { painting = false; };
-  el.planGrid?.addEventListener('pointerup', stopPainting);
-  el.planGrid?.addEventListener('pointercancel', stopPainting);
-  el.planGrid?.addEventListener('pointerleave', stopPainting);
-  window.addEventListener('pointerup', stopPainting);
 
   el.planTaskForm?.addEventListener('submit', (e) => {
     e.preventDefault();
     const text = el.planTaskInput.value.trim();
     if (!text) return;
     const stage = el.planTaskStage?.value || '';
-    const task = { id: uid('t'), text: text.slice(0, 120), stage, done: false, createdAt: Date.now() };
-    writePlan({ ...plan(), tasks: [...plan().tasks, task] });
+    remember();
+    current.tasks = [...tasks(), { id: uid('t'), text: text.slice(0, 120), stage, done: false, createdAt: Date.now() }];
     el.planTaskInput.value = '';
+    commit();
   });
 
   el.planAddActivity?.addEventListener('click', () => {
@@ -446,6 +875,7 @@ function bindEvents() {
     state.activities = [...state.activities, { key, label, kind: 'study' }];
     state.settings.brush = key;
     save(state);
+    brushKey = key;
     eraseMode = false;
     state = load();
     render();
@@ -453,9 +883,12 @@ function bindEvents() {
   });
 
   el.planClear?.addEventListener('click', () => {
-    if (!plan().blocks.length && !plan().tasks.length) { showToast('Nothing to clear'); return; }
+    if (!blocks().length && !tasks().length) { showToast('Nothing to clear'); return; }
     if (!window.confirm(`Clear the plan for ${labelDate(currentDate, { month: 'long', day: 'numeric' })}?`)) return;
-    writePlan({ ...plan(), blocks: [], tasks: [], imported: null, done: {} });
+    remember();
+    current = { ...current, blocks: [], tasks: [], imported: null, done: {} };
+    selectedId = '';
+    commit();
   });
 
   el.planCopy?.addEventListener('click', () => openCopyDialog());
@@ -467,68 +900,42 @@ function bindEvents() {
     copyDay(btn.dataset.copyFrom);
   });
 
+  el.planStart?.addEventListener('click', () => continueTimetable(currentDate));
+
+  // Importing a timetable: the button, and dropping a PDF anywhere.
   el.planImport?.addEventListener('click', () => el.planImportFile?.click());
   el.planImportFile?.addEventListener('change', async () => {
     const file = el.planImportFile.files?.[0];
     el.planImportFile.value = '';
-    if (!file) return;
-    try {
-      const result = await importTimetable(state, file);
-      state = load();
-      currentDate = result.date;
-      showToast(`Imported ${result.blocks} blocks · ${result.label}`);
-      render();
-    } catch (err) {
-      showToast(importErrorMessage(err));
-    }
+    if (file) await runImport(file);
   });
 
-  el.ttPick?.addEventListener('click', (e) => { e.stopPropagation(); el.ttFile?.click(); });
-  el.ttDrop?.addEventListener('click', () => el.ttFile?.click());
-  el.ttDrop?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.ttFile?.click(); }
+  let dragDepth = 0;
+  window.addEventListener('dragenter', (e) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    dragDepth += 1;
+    if (el.dropOverlay) el.dropOverlay.hidden = false;
   });
-  el.ttFile?.addEventListener('change', async () => {
-    const file = el.ttFile.files?.[0];
-    el.ttFile.value = '';
-    if (!file) return;
-    try {
-      const result = await importTimetable(state, file);
-      state = load();
-      currentDate = result.date;
-      showToast(`Imported ${result.blocks} blocks · ${result.label}`);
-      render();
-    } catch (err) {
-      showToast(importErrorMessage(err));
-    }
+  window.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
   });
-  ['dragenter', 'dragover'].forEach(type => {
-    el.ttDrop?.addEventListener(type, (e) => { e.preventDefault(); e.stopPropagation(); el.ttDrop.dataset.dragging = 'true'; });
+  window.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth && el.dropOverlay) el.dropOverlay.hidden = true;
   });
-  ['dragleave', 'drop'].forEach(type => {
-    el.ttDrop?.addEventListener(type, (e) => { e.preventDefault(); e.stopPropagation(); el.ttDrop.dataset.dragging = 'false'; });
+  window.addEventListener('drop', async (e) => {
+    if (!e.dataTransfer?.files?.length) return;
+    e.preventDefault();
+    dragDepth = 0;
+    if (el.dropOverlay) el.dropOverlay.hidden = true;
+    await runImport(e.dataTransfer.files[0]);
   });
-  el.ttDrop?.addEventListener('drop', async (e) => {
-    const file = e.dataTransfer?.files?.[0];
-    if (!file) return;
-    try {
-      const result = await importTimetable(state, file);
-      state = load();
-      currentDate = result.date;
-      showToast(`Imported ${result.blocks} blocks · ${result.label}`);
-      render();
-    } catch (err) {
-      showToast(importErrorMessage(err));
-    }
-  });
-
-  el.ttContinueBtn?.addEventListener('click', () => continueTimetable());
 
   el.planSaveTimer?.addEventListener('click', () => {
-    const p = plan();
-    if (!p.blocks.length) { showToast('Nothing to save'); return; }
-    savePlanForTimer(state, p, p.imported?.label || labelDate(currentDate, { weekday: 'long', month: 'long', day: 'numeric' }));
-    save(state);
+    if (!blocks().length) { showToast('Nothing to save'); return; }
+    savePlanForTimer(state, current, current.imported?.label || labelDate(currentDate, { weekday: 'long', month: 'long', day: 'numeric' }));
+    saveNow(state);
     showToast('Saved to timer');
   });
 
@@ -543,7 +950,39 @@ function bindEvents() {
     showToast(next === 'graphite' ? 'Graphite theme' : 'Void theme');
   });
 
+  window.addEventListener('keydown', (e) => {
+    const t = e.target;
+    const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+    if (typing) return;
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (drag) { cancelDrag(); return; }
+      if (selectedId) { selectedId = ''; renderGrid(); renderInspector(); }
+    }
+  });
+
   setInterval(updateRuntimeChip, 30000);
+}
+
+/* ── import, copy, hand over, export ──────────────────────── */
+
+async function runImport(file) {
+  try {
+    const result = await importTimetable(state, file);
+    state = load();
+    currentDate = result.date;
+    current = getPlan(state, currentDate);
+    selectedId = '';
+    render();
+    showToast(`Imported ${result.blocks} blocks · ${result.label}`);
+  } catch (err) {
+    showToast(importErrorMessage(err));
+  }
 }
 
 function openCopyDialog() {
@@ -552,7 +991,7 @@ function openCopyDialog() {
     { key: shiftKey(currentDate, -1), label: 'Previous day' },
     { key: shiftKey(currentDate, -7), label: 'Last week' },
     { key: today, label: 'Today' },
-  ];
+  ].filter(o => o.key !== currentDate);
   if (!el.copyOptions) return;
   el.copyOptions.innerHTML = '';
   for (const o of options) {
@@ -571,27 +1010,29 @@ function copyDay(fromDate) {
   if (fromDate === currentDate) { showToast('That is the same day'); return; }
   const from = getPlan(state, fromDate);
   if (!from.blocks.length) { showToast('Nothing planned on that day'); return; }
-  const to = plan();
-  writePlan({
-    ...to,
+  remember();
+  current = {
+    ...current,
     blocks: from.blocks.map(b => ({ ...b, id: uid('b') })),
     imported: from.imported ? { ...from.imported } : null,
     done: {},
-  });
+  };
+  selectedId = '';
   el.copyDialog?.close?.();
+  commit();
   showToast('Plan copied');
 }
 
 function continueTimetable(date = dateKey(Date.now())) {
-  const p = getPlan(state, date);
+  const p = date === currentDate ? current : getPlan(state, date);
   if (!p.blocks.length) { showToast('Nothing is planned for that day'); return; }
   const isToday = date === dateKey(Date.now());
   const mins = minutesOfDay();
-  const { current, next } = dayProgress(p.blocks, mins, isToday);
-  const block = current || next;
+  const { current: cur, next } = dayProgress(p.blocks, mins, isToday);
+  const block = cur || next;
   if (!block) { showToast('That day is done — nothing left to run'); return; }
   let remaining = (block.endMin - block.startMin) * 60000;
-  if (current && isToday) {
+  if (cur && isToday) {
     const endTs = Date.now() - (mins * 60000) + (block.endMin * 60000);
     remaining = Math.max(1000, endTs - Date.now());
   }
@@ -601,44 +1042,47 @@ function continueTimetable(date = dateKey(Date.now())) {
 }
 
 function downloadPlan(date) {
-  const p = getPlan(state, date);
-  const blocks = p.blocks.map(b => ({
+  const p = date === currentDate ? current : getPlan(state, date);
+  const list = p.blocks.map(b => ({
     range: blockRangeLabel(b),
     label: b.label,
     duration: humanDuration((b.endMin - b.startMin) * 60000),
   }));
-  const tasks = (p.tasks || []).map(t => ({ text: t.text, done: !!t.done }));
+  const taskList = (p.tasks || []).map(t => ({ text: t.text, done: !!t.done }));
   if (Array.isArray(p.imported?.subjects)) {
     for (const s of p.imported.subjects) {
-      if (s && s.name) tasks.push({ text: `${s.name}: ${s.done}/${s.total}`, done: Number(s.done) >= Number(s.total) && Number(s.total) > 0 });
+      if (s && s.name) taskList.push({ text: `${s.name}: ${s.done}/${s.total}`, done: Number(s.done) >= Number(s.total) && Number(s.total) > 0 });
     }
   }
   downloadPlanPdf({
     title: `Cadence plan — ${labelDate(date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`,
     subtitle: p.imported?.label || '',
-    blocks,
-    tasks,
+    blocks: list,
+    tasks: taskList,
     footer: 'Generated by Cadence — plan the day, run the day',
   }, `cadence-plan-${date}.pdf`);
   showToast('PDF downloaded');
 }
 
+/* ── go ───────────────────────────────────────────────────── */
+
 function init() {
+  buildGutters();
   bindEvents();
   render();
-  updateRuntimeChip();
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      state = load();
-      render();
-      updateRuntimeChip();
-    }
-  });
-  window.addEventListener('focus', () => {
+
+  // Coming back to the page — from the clock, another tab or the background —
+  // the store may have moved on. Re-read it, but never in the middle of a drag.
+  const refresh = () => {
+    if (drag) return;
     state = load();
+    current = getPlan(state, currentDate);
     render();
-    updateRuntimeChip();
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refresh();
   });
+  window.addEventListener('focus', refresh);
 }
 
 init();

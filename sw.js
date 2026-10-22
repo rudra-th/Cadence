@@ -13,7 +13,7 @@
  *    revalidate) — instant loads, quiet updates.
  */
 
-const VERSION = 'v1.1.0';
+const VERSION = 'v1.2.0';
 const CACHE = `cadence-${VERSION}`;
 
 const SHELL = [
@@ -33,7 +33,6 @@ const SHELL = [
   './assets/js/landing.js',
   './assets/js/store.js',
   './assets/js/plan.js',
-  './assets/js/planner.js',
   './assets/js/theme.js',
   './assets/js/util.js',
   './assets/js/audio.js',
