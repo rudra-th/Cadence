@@ -108,7 +108,7 @@
           </button>
           <input type="file" id="planImportFile" accept="application/pdf,.pdf" hidden>
           <button class="btn btn--soft btn--sm" id="planSaveTimer" type="button">Save to timer</button>
-          <button class="btn btn--soft btn--sm" id="planPrint" type="button" title="Print the day (opens your system print dialog)">
+          <button class="btn btn--soft btn--sm" id="planPrint" type="button" title="Print the day — choose a style, then use your system print dialog">
             <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
               <path d="M6 9V4h12v5"/>
               <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
@@ -231,6 +231,83 @@
     </div>
     <footer class="modal__foot">
       <button class="btn btn--soft" type="button" id="copyCancel">Cancel</button>
+    </footer>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<!-- Print style: paper, colour and how much of the day to show. The sheet on
+     the left is the real thing, scaled down, so the choice is visible before
+     the system dialog opens. -->
+<dialog class="modal modal--print" id="printDialog" aria-labelledby="printTitle">
+  <div class="modal__form">
+    <header class="modal__head modal__head--print">
+      <div>
+        <h2 class="modal__title" id="printTitle">Print the day</h2>
+        <p class="modal__sub">A4 · your system print dialog opens next</p>
+      </div>
+      <button class="icon-btn" type="button" id="printClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M6 6l12 12M18 6L6 18"/>
+        </svg>
+      </button>
+    </header>
+    <div class="modal__body">
+      <div class="printdesk">
+        <div class="printpreview">
+          <div class="printpreview__page">
+            <div class="printdoc printdoc--preview" id="printPreview" aria-hidden="true"></div>
+          </div>
+          <span class="printpreview__cap">A4 · one page</span>
+        </div>
+        <div class="printdesk__opts">
+          <fieldset class="printopt">
+            <legend>Theme</legend>
+            <div class="printopt__row">
+              <label class="printopt__btn">
+                <input type="radio" name="printTheme" value="light">
+                <span>Light</span>
+              </label>
+              <label class="printopt__btn">
+                <input type="radio" name="printTheme" value="dark">
+                <span>Dark</span>
+              </label>
+            </div>
+          </fieldset>
+          <fieldset class="printopt">
+            <legend>Colour</legend>
+            <div class="printopt__row">
+              <label class="printopt__btn">
+                <input type="radio" name="printColour" value="colour">
+                <span>Colour</span>
+              </label>
+              <label class="printopt__btn">
+                <input type="radio" name="printColour" value="grey">
+                <span>Grey</span>
+              </label>
+            </div>
+          </fieldset>
+          <fieldset class="printopt">
+            <legend>Layout</legend>
+            <div class="printopt__row">
+              <label class="printopt__btn">
+                <input type="radio" name="printLayout" value="full">
+                <span>Full</span>
+              </label>
+              <label class="printopt__btn">
+                <input type="radio" name="printLayout" value="zen">
+                <span>Zen</span>
+              </label>
+            </div>
+          </fieldset>
+          <p class="printopt__hint" id="printHint">Stats, strip, schedule, tasks and breakdown.</p>
+        </div>
+      </div>
+    </div>
+    <footer class="modal__foot">
+      <button class="btn btn--soft" type="button" id="printCancel">Cancel</button>
+      <button class="btn btn--primary" type="button" id="printGo">Print</button>
     </footer>
   </div>
 </dialog>

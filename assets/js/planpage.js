@@ -38,6 +38,9 @@ let drag = null;              // the gesture in progress, if any
 let history = [];             // undo
 let future = [];              // redo
 
+/* Last-used print style, remembered in the store. */
+let printOpts = { ...state.settings.print };
+
 const $ = (id) => document.getElementById(id);
 
 const el = {
@@ -67,6 +70,12 @@ const el = {
   planSaveTimer: $('planSaveTimer'),
   planPrint: $('planPrint'),
   printDoc: $('printDoc'),
+  printDialog: $('printDialog'),
+  printPreview: $('printPreview'),
+  printHint: $('printHint'),
+  printClose: $('printClose'),
+  printCancel: $('printCancel'),
+  printGo: $('printGo'),
   planCopy: $('planCopy'),
   planClear: $('planClear'),
   planUndo: $('planUndo'),
@@ -237,13 +246,79 @@ function renderHeader() {
  * Keep the hidden print view in step with the day on screen. It is cheap, and
  * it means Ctrl+P works even if the browser fires `beforeprint` late.
  */
-function renderPrintDoc() {
-  if (!el.printDoc) return;
-  el.printDoc.innerHTML = buildPlanPrint({ plan: current, date: currentDate });
+
+/** Put the current style on a print container and fill it with the day. */
+function paintPrintDoc(target) {
+  if (!target) return;
+  target.dataset.theme = printOpts.theme;
+  target.dataset.colour = printOpts.colour;
+  target.classList.toggle('printdoc--zen', printOpts.layout === 'zen');
+
+  // A long day gets a tighter rhythm so it still fits on one sheet. Zen
+  // already has generous rows, so it is left alone.
+  const blockCount = Array.isArray(current.blocks) ? current.blocks.length : 0;
+  const taskCount = Array.isArray(current.tasks) ? current.tasks.length : 0;
+  target.classList.toggle(
+    'printdoc--dense',
+    printOpts.layout !== 'zen' && (blockCount > 14 || taskCount > 6),
+  );
+
+  target.innerHTML = buildPlanPrint({
+    plan: current,
+    date: currentDate,
+    theme: printOpts.theme,
+    colour: printOpts.colour,
+    zen: printOpts.layout === 'zen',
+  });
 }
 
+function renderPrintDoc() {
+  paintPrintDoc(el.printDoc);
+}
+
+function renderPrintPreview() {
+  paintPrintDoc(el.printPreview);
+}
+
+/** One line under the options that says what the current choice does. */
+function updatePrintHint() {
+  if (!el.printHint) return;
+  const bits = [];
+  if (printOpts.theme === 'dark') bits.push('Dark is ink-heavy — best when you save as PDF.');
+  if (printOpts.colour === 'grey') bits.push('Grey keeps the app’s monochrome palette.');
+  if (printOpts.layout === 'zen') bits.push('Zen prints only the date, the strip and the schedule.');
+  if (!bits.length) bits.push('Stats, strip, schedule, tasks and breakdown.');
+  el.printHint.textContent = bits.join(' ');
+}
+
+/** Show the stored choices in the dialog's radio buttons. */
+function syncPrintControls() {
+  const dialog = el.printDialog;
+  if (!dialog) return;
+  const set = (name, value) => {
+    const input = dialog.querySelector(`input[name="${name}"][value="${value}"]`);
+    if (input) input.checked = true;
+  };
+  set('printTheme', printOpts.theme);
+  set('printColour', printOpts.colour);
+  set('printLayout', printOpts.layout);
+  updatePrintHint();
+}
+
+function openPrintDialog() {
+  if (!el.printDialog || typeof el.printDialog.showModal !== 'function') {
+    printPlan();
+    return;
+  }
+  syncPrintControls();
+  renderPrintPreview();
+  if (!el.printDialog.open) el.printDialog.showModal();
+}
+
+/** Apply the style to the real sheet, then hand over to the system dialog. */
 function printPlan() {
   renderPrintDoc();
+  document.documentElement.dataset.printTheme = printOpts.theme;
   window.print();
 }
 
@@ -955,8 +1030,36 @@ function bindEvents() {
     showToast('Saved to timer');
   });
 
-  el.planPrint?.addEventListener('click', printPlan);
-  window.addEventListener('beforeprint', renderPrintDoc);
+  el.planPrint?.addEventListener('click', openPrintDialog);
+
+  el.printClose?.addEventListener('click', () => el.printDialog?.close());
+  el.printCancel?.addEventListener('click', () => el.printDialog?.close());
+  el.printGo?.addEventListener('click', () => {
+    el.printDialog?.close();
+    printPlan();
+  });
+
+  el.printDialog?.addEventListener('change', (e) => {
+    const input = e.target;
+    if (!(input instanceof HTMLInputElement) || !input.name.startsWith('print')) return;
+    if (input.name === 'printTheme') printOpts.theme = input.value === 'dark' ? 'dark' : 'light';
+    if (input.name === 'printColour') printOpts.colour = input.value === 'grey' ? 'grey' : 'colour';
+    if (input.name === 'printLayout') printOpts.layout = input.value === 'zen' ? 'zen' : 'full';
+
+    state.settings.print = { ...printOpts };
+    save(state);
+    renderPrintDoc();
+    renderPrintPreview();
+    updatePrintHint();
+  });
+
+  window.addEventListener('beforeprint', () => {
+    renderPrintDoc();
+    document.documentElement.dataset.printTheme = printOpts.theme;
+  });
+  window.addEventListener('afterprint', () => {
+    delete document.documentElement.dataset.printTheme;
+  });
 
   el.planThemeBtn?.addEventListener('click', () => {
     const html = document.documentElement;

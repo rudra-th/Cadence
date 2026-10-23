@@ -1,14 +1,15 @@
 /**
  * Cadence — the printed day.
  *
- * The plan page prints this, not the app. A header with the date and the
- * numbers that matter, the day as a 24-hour strip, the schedule, the tasks
- * and where the hours actually went.
+ * The plan page prints this, not the app. Three things the sheet can be:
+ *
+ *   • paper or ink   — a light sheet for paper, a dark one for screens;
+ *   • colour or grey — activities can carry a hue or stay monochrome;
+ *   • full or zen    — everything, or just the date, the strip and the day.
  *
  * It is plain HTML and CSS so the system print dialog can lay it out on A4,
  * and so "Save as PDF" in that dialog gives a real vector file with
- * selectable text. No library, no network, nothing to download behind the
- * user's back.
+ * selectable text. No library, no network.
  */
 
 import { planSummary, blockRangeLabel, toneOf } from './plan.js';
@@ -36,19 +37,73 @@ const CHECK = '<svg viewBox="0 0 12 12" aria-hidden="true">'
   + '<path d="M2.3 6.4 4.7 8.8 9.7 3.5" fill="none" stroke="currentColor" '
   + 'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
+/* ── colour ────────────────────────────────────────────────── */
+
+/*
+ * The app itself has no colour: activities are told apart by grey tone. The
+ * printed sheet can add a hue, so a day reads at a glance on paper. The
+ * palette is deliberately muted — 700s on paper, 400s on ink — and each
+ * activity keeps the same hue whichever theme is chosen.
+ */
+const COLOURS = {
+  light: {
+    sleep: '#4F46E5',
+    school: '#0E7490',
+    coaching: '#C2410C',
+    self_study: '#1D4ED8',
+    physics: '#0F766E',
+    chemistry: '#7C3AED',
+    maths: '#B45309',
+    biology: '#15803D',
+    revision: '#9D174D',
+    test: '#B91C1C',
+    breaks: '#94A3B8',
+    misc: '#475569',
+  },
+  dark: {
+    sleep: '#818CF8',
+    school: '#22D3EE',
+    coaching: '#FB923C',
+    self_study: '#60A5FA',
+    physics: '#2DD4BF',
+    chemistry: '#A78BFA',
+    maths: '#FBBF24',
+    biology: '#4ADE80',
+    revision: '#FB7185',
+    test: '#F87171',
+    breaks: '#64748B',
+    misc: '#CBD5E1',
+  },
+};
+
+const FALLBACK = {
+  light: ['#1D4ED8', '#0F766E', '#B45309', '#7C3AED', '#9D174D'],
+  dark: ['#60A5FA', '#2DD4BF', '#FBBF24', '#A78BFA', '#FB7185'],
+};
+
+/** The tone attributes for one activity, with an inline hue in colour mode. */
+function ink(key, theme, colour) {
+  const tone = toneOf(key);
+  if (colour === 'grey') return ` data-tone="${tone}"`;
+  const dark = theme === 'dark';
+  const hue = COLOURS[dark ? 'dark' : 'light'][key]
+    || FALLBACK[dark ? 'dark' : 'light'][tone];
+  return ` data-tone="${tone}" style="--tone:${hue}"`;
+}
+
 /* ── pieces ────────────────────────────────────────────────── */
 
 /**
  * The day at a glance: one segment per block across a 24-hour bar.
  * Free time stays as the pale track underneath.
  */
-function strip(blocks) {
+function strip(blocks, theme, colour) {
   if (!blocks.length) return '';
 
   const segments = blocks.map((b) => {
     const left = (b.startMin / 1440) * 100;
     const width = ((b.endMin - b.startMin) / 1440) * 100;
-    return `<span class="pdoc-seg" data-tone="${toneOf(b.key)}"`
+    return `<span class="pdoc-seg"${ink(b.key, theme, colour)}`
       + ` style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%"></span>`;
   }).join('');
 
@@ -80,7 +135,7 @@ function stats(sum, taskCount, taskDone) {
     </div>`;
 }
 
-function schedule(blocks) {
+function schedule(blocks, theme, colour, zen) {
   if (!blocks.length) {
     return '<p class="pdoc-empty">Nothing is planned for this day.</p>';
   }
@@ -88,19 +143,22 @@ function schedule(blocks) {
   const rows = blocks.map(b => `
     <tr>
       <td class="pdoc-time">${esc(blockRangeLabel(b))}</td>
-      <td class="pdoc-act"><span class="pdoc-swatch" data-tone="${toneOf(b.key)}"></span>${esc(b.label)}</td>
+      <td class="pdoc-act"><span class="pdoc-swatch"${ink(b.key, theme, colour)}></span>${esc(b.label)}</td>
       <td class="pdoc-dur">${esc(dur(b.endMin - b.startMin))}</td>
     </tr>`).join('');
 
-  return `
-    <table class="pdoc-table">
+  const head = zen ? '' : `
       <thead>
         <tr>
           <th scope="col">Time</th>
           <th scope="col">Activity</th>
           <th scope="col" class="pdoc-dur">Length</th>
         </tr>
-      </thead>
+      </thead>`;
+
+  return `
+    <table class="pdoc-table">
+      ${head}
       <tbody>${rows}</tbody>
     </table>`;
 }
@@ -145,7 +203,7 @@ function taskSection(tasks) {
     </section>`;
 }
 
-function breakdown(blocks, freeMin) {
+function breakdown(blocks, freeMin, theme, colour) {
   if (!blocks.length) return '';
 
   const totals = new Map();
@@ -165,7 +223,7 @@ function breakdown(blocks, freeMin) {
         <span class="pdoc-mix__label">${esc(row.label)}</span>
         <span class="pdoc-mix__min">${esc(dur(row.min))}</span>
         <span class="pdoc-mix__pct">${share}%</span>
-        <span class="pdoc-mix__track"><span class="pdoc-mix__fill"${row.free ? '' : ` data-tone="${toneOf(row.key)}"`} style="width:${share}%"></span></span>
+        <span class="pdoc-mix__track"><span class="pdoc-mix__fill"${row.free ? '' : ink(row.key, theme, colour)} style="width:${share}%"></span></span>
       </div>`;
   }).join('');
 
@@ -185,38 +243,56 @@ function breakdown(blocks, freeMin) {
  * Build the print view of one day.
  *
  * @param {object} options
- * @param {object} options.plan   the plan to print
- * @param {string} options.date   its date key
+ * @param {object} options.plan    the plan to print
+ * @param {string} options.date    its date key
+ * @param {string} [options.theme] 'light' | 'dark'
+ * @param {string} [options.colour] 'colour' | 'grey'
+ * @param {boolean} [options.zen]  a calmer sheet: no stats, tasks or breakdown
  * @returns {string} HTML for the print container
  */
-export function buildPlanPrint({ plan, date }) {
+export function buildPlanPrint({
+  plan, date, theme = 'light', colour = 'colour', zen = false,
+}) {
   const blocks = (plan?.blocks || []).slice()
     .sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
   const tasks = plan?.tasks || [];
   const sum = planSummary(plan || { blocks: [], tasks: [] });
   const day = labelDate(date, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-  return `
+  const head = `
     <header class="pdoc-top">
       <span class="pdoc-brand">Cadence</span>
       <span class="pdoc-day">${esc(day)}</span>
     </header>
 
-    <h1 class="pdoc-title">Day plan</h1>
+    <h1 class="pdoc-title">Day plan</h1>`;
+
+  if (zen) {
+    return `
+      ${head}
+      ${strip(blocks, theme, colour)}
+
+      <section class="pdoc-section pdoc-schedule pdoc-schedule--zen">
+        ${schedule(blocks, theme, colour, true)}
+      </section>`;
+  }
+
+  return `
+    ${head}
 
     ${stats(sum, tasks.length, tasks.filter(t => t.done).length)}
-    ${strip(blocks)}
+    ${strip(blocks, theme, colour)}
 
     <section class="pdoc-section pdoc-schedule">
       <header class="pdoc-head">
         <h2>Schedule</h2>
         <span class="pdoc-head__note">${blocks.length} ${blocks.length === 1 ? 'block' : 'blocks'}</span>
       </header>
-      ${schedule(blocks)}
+      ${schedule(blocks, theme, colour, false)}
     </section>
 
     ${taskSection(tasks)}
-    ${breakdown(blocks, sum.freeMin)}
+    ${breakdown(blocks, sum.freeMin, theme, colour)}
 
     <footer class="pdoc-foot">
       <span>Cadence — plan the day, run the day</span>

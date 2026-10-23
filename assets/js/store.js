@@ -57,6 +57,10 @@ export const DEFAULTS = {
     autoPlan: false,
     ringOnBlockEnd: true,
     brush: 'self_study',
+
+    // Last-used print style. Remembered so Ctrl+P and the Print button both
+    // reopen the sheet exactly as it was left.
+    print: { theme: 'light', colour: 'colour', layout: 'full' },
   },
   sessions: [],
   counters: { focus: 0, break: 0 },
@@ -135,6 +139,12 @@ export function sanitizeSettings(raw) {
   }
   if (THEMES.includes(raw.theme)) out.theme = raw.theme;
   if (typeof raw.brush === 'string' && raw.brush) out.brush = raw.brush.slice(0, 60);
+  const print = raw.print && typeof raw.print === 'object' ? raw.print : {};
+  out.print = {
+    theme: print.theme === 'dark' ? 'dark' : 'light',
+    colour: print.colour === 'grey' ? 'grey' : 'colour',
+    layout: print.layout === 'zen' ? 'zen' : 'full',
+  };
   if (Array.isArray(raw.presets)) {
     const list = raw.presets.map(p => sanitizePreset(p, false)).filter(Boolean);
     out.presets = list.length ? list : structuredClone(DEFAULT_PRESETS);

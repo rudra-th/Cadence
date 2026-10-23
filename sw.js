@@ -13,7 +13,7 @@
  *    revalidate) — instant loads, quiet updates.
  */
 
-const VERSION = 'v1.2.2';
+const VERSION = 'v1.2.3';
 const CACHE = `cadence-${VERSION}`;
 
 const SHELL = [
