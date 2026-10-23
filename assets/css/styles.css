@@ -2310,7 +2310,246 @@ body.landing { background: var(--bg); }
   .nav { padding-left: 16px; padding-right: 16px; }
 }
 
-/* ── Focus / print ───────────────────────────────────────── */
+/* ── The printed day ─────────────────────────────────────── */
+/* The paper version lives in the page, hidden. @media print swaps it in for
+   the app, so Ctrl+P and the Print button both open the system dialog — no
+   pop-up window, no file dropped into Downloads. */
+
+.printdoc { display: none; }
+
 @media print {
+  @page { size: A4; margin: 15mm 14mm 16mm; }
+
+  html, body { background: #FFFFFF !important; }
+
   .aurora, .topbar, .controls, .subcontrols, .drawer, .scrim { display: none !important; }
+  body.planpage > *:not(#printDoc) { display: none !important; }
+
+  .printdoc {
+    display: block;
+    background: #FFFFFF;
+    color: #161616;
+    font-family: var(--font);
+    font-size: 9.5pt;
+    line-height: 1.38;
+    font-variant-numeric: tabular-nums;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* A darker ramp than the screen: paper eats light greys. */
+  .printdoc [data-tone="0"] { --tone: #E8E8E8; --tone-ink: #161616; }
+  .printdoc [data-tone="1"] { --tone: #BFBFBF; --tone-ink: #161616; }
+  .printdoc [data-tone="2"] { --tone: #8C8C8C; --tone-ink: #0F0F0F; }
+  .printdoc [data-tone="3"] { --tone: #5A5A5A; --tone-ink: #FFFFFF; }
+  .printdoc [data-tone="4"] { --tone: #262626; --tone-ink: #FFFFFF; }
+
+  /* head */
+  .pdoc-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8mm; }
+  .pdoc-brand {
+    font-size: 7.5pt;
+    font-weight: 650;
+    letter-spacing: .24em;
+    text-transform: uppercase;
+    color: #8C8C8C;
+  }
+  .pdoc-day { font-size: 8.5pt; color: #5A5A5A; }
+  .pdoc-title {
+    margin: 1.5mm 0 0;
+    font-size: 25pt;
+    font-weight: 600;
+    letter-spacing: -.035em;
+    line-height: 1.05;
+  }
+
+  /* the numbers */
+  .pdoc-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    margin-top: 4.5mm;
+    padding-top: 2.5mm;
+    border-top: 1.1pt solid #161616;
+  }
+  .pdoc-stat { display: flex; flex-direction: column; gap: .8mm; }
+  .pdoc-stat__label {
+    font-size: 6.8pt;
+    font-weight: 600;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: #8C8C8C;
+  }
+  .pdoc-stat__value { font-family: var(--mono); font-size: 11.5pt; letter-spacing: -.02em; }
+
+  /* the day as one strip */
+  .pdoc-strip { margin-top: 4.5mm; break-inside: avoid; }
+  .pdoc-bar {
+    position: relative;
+    height: 6mm;
+    background: #F2F2F2;
+    border-radius: 1mm;
+    overflow: hidden;
+  }
+  .pdoc-seg { position: absolute; top: 0; bottom: 0; background: var(--tone, #8C8C8C); }
+  .pdoc-seg + .pdoc-seg { box-shadow: inset .3mm 0 0 #FFFFFF; }
+  .pdoc-ticks { position: relative; height: 4mm; margin-top: 1.4mm; }
+  .pdoc-tick {
+    position: absolute;
+    top: 0;
+    font-family: var(--mono);
+    font-size: 6.6pt;
+    color: #8C8C8C;
+    white-space: nowrap;
+  }
+  .pdoc-tick--mid { transform: translateX(-50%); }
+  .pdoc-tick--end { transform: translateX(-100%); }
+
+  /* sections */
+  .pdoc-section { margin-top: 4.5mm; }
+  .pdoc-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6mm;
+    margin-bottom: .8mm;
+    padding-bottom: 1.2mm;
+    border-bottom: .8pt solid #161616;
+  }
+  .pdoc-head h2 {
+    margin: 0;
+    font-size: 7.2pt;
+    font-weight: 650;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+  }
+  .pdoc-head__note { font-size: 7.5pt; color: #8C8C8C; }
+
+  /* schedule */
+  .pdoc-table { width: 100%; border-collapse: collapse; }
+  .pdoc-table thead { display: table-header-group; }
+  .pdoc-table tr { break-inside: avoid; }
+  .pdoc-table th {
+    padding: .9mm 0;
+    border-bottom: .6pt solid #D9D9D9;
+    font-size: 6.6pt;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: #9A9A9A;
+    text-align: left;
+  }
+  .pdoc-table td { padding: .8mm 0; border-bottom: .6pt solid #EDEDED; vertical-align: baseline; }
+  .pdoc-table tr:last-child td { border-bottom: 0; }
+  .pdoc-time {
+    width: 28%;
+    font-family: var(--mono);
+    font-size: 8pt;
+    color: #5A5A5A;
+    white-space: nowrap;
+  }
+  .pdoc-act { font-size: 9.6pt; }
+  .pdoc-dur {
+    width: 12%;
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 8pt;
+    color: #5A5A5A;
+    white-space: nowrap;
+  }
+  .pdoc-swatch {
+    display: inline-block;
+    width: 2mm;
+    height: 2mm;
+    margin-right: 2.2mm;
+    border-radius: .4mm;
+    background: var(--tone, #8C8C8C);
+    box-shadow: inset 0 0 0 .2mm rgba(0, 0, 0, .18);
+    vertical-align: .1mm;
+  }
+  .pdoc-empty { padding: 4mm 0; font-size: 9pt; color: #8C8C8C; }
+
+  /* tasks */
+  .pdoc-tasks { break-inside: avoid; }
+  .pdoc-taskgrid { columns: 2; column-gap: 9mm; margin-top: 2mm; }
+  .pdoc-taskgroup { break-inside: avoid; margin-bottom: 3mm; }
+  .pdoc-taskgroup__head {
+    display: flex;
+    justify-content: space-between;
+    gap: 4mm;
+    margin-bottom: 1.4mm;
+    padding-bottom: 1.1mm;
+    border-bottom: .6pt solid #D9D9D9;
+    font-size: 6.6pt;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: #9A9A9A;
+  }
+  .pdoc-tasklist { margin: 0; padding: 0; list-style: none; }
+  .pdoc-task { display: flex; align-items: flex-start; gap: 2.2mm; padding: .55mm 0; font-size: 9pt; }
+  .pdoc-check {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.1mm;
+    height: 3.1mm;
+    margin-top: .45mm;
+    border: .3mm solid #BFBFBF;
+    border-radius: .5mm;
+    color: #FFFFFF;
+  }
+  .pdoc-check svg { width: 2.3mm; height: 2.3mm; }
+  .pdoc-task.is-done .pdoc-check { background: #161616; border-color: #161616; }
+  .pdoc-task.is-done .pdoc-task__text { color: #8C8C8C; text-decoration: line-through; }
+
+  /* breakdown */
+  .pdoc-breakdown { break-inside: avoid; }
+  .pdoc-mixgrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 9mm;
+    row-gap: 2.6mm;
+    margin-top: 2.2mm;
+  }
+  .pdoc-mix {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    column-gap: 3mm;
+    align-items: baseline;
+    break-inside: avoid;
+  }
+  .pdoc-mix__label { font-size: 9pt; }
+  .pdoc-mix__min { font-family: var(--mono); font-size: 7.8pt; color: #5A5A5A; }
+  .pdoc-mix__pct {
+    min-width: 7mm;
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 7.8pt;
+    color: #8C8C8C;
+  }
+  .pdoc-mix__track {
+    grid-column: 1 / -1;
+    height: 1.3mm;
+    margin-top: 1.1mm;
+    border-radius: .7mm;
+    background: #F2F2F2;
+    overflow: hidden;
+  }
+  .pdoc-mix__fill { display: block; height: 100%; border-radius: .7mm; background: var(--tone, #8C8C8C); }
+  .pdoc-mix.is-free .pdoc-mix__fill {
+    background: repeating-linear-gradient(90deg, #DCDCDC 0 1mm, #F2F2F2 1mm 2mm);
+  }
+
+  /* foot */
+  .pdoc-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 8mm;
+    margin-top: 5mm;
+    padding-top: 2.2mm;
+    border-top: .6pt solid #D9D9D9;
+    font-size: 6.8pt;
+    letter-spacing: .04em;
+    color: #9A9A9A;
+  }
 }

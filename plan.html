@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Cadence — Plan</title>
-<meta name="description" content="Cadence plan page — paint your day, import a timetable, save it to the timer, and download a PDF.">
+<meta name="description" content="Cadence plan page — paint your day, import a timetable, save it to the timer, and print it.">
 <meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
 <link rel="manifest" href="./manifest.webmanifest">
@@ -108,7 +108,14 @@
           </button>
           <input type="file" id="planImportFile" accept="application/pdf,.pdf" hidden>
           <button class="btn btn--soft btn--sm" id="planSaveTimer" type="button">Save to timer</button>
-          <button class="btn btn--soft btn--sm" id="planDownloadPdf" type="button">Download PDF</button>
+          <button class="btn btn--soft btn--sm" id="planPrint" type="button" title="Print the day (opens your system print dialog)">
+            <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 9V4h12v5"/>
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+              <rect x="6" y="14" width="12" height="8" rx="1.5"/>
+            </svg>
+            Print
+          </button>
           <button class="btn btn--soft btn--sm" id="planCopy" type="button">Copy a day</button>
           <button class="icon-btn icon-btn--sm" id="planUndo" type="button" aria-label="Undo" title="Undo (Ctrl+Z)" disabled>
             <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h9a7 7 0 0 1 0 14h-3"/></svg>
@@ -229,6 +236,9 @@
 </dialog>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<!-- The paper version of the day. Hidden on screen, laid out by @media print. -->
+<section class="printdoc" id="printDoc" aria-hidden="true"></section>
 
 <script type="module" src="./assets/js/planpage.js"></script>
 </body>
