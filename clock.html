@@ -78,6 +78,8 @@
   <!-- ══════════ The clock ══════════ -->
   <main class="stage">
 
+    <div class="stage__clock">
+
     <div class="segmented" role="group" aria-label="Timer mode">
       <span class="segmented__thumb" aria-hidden="true"></span>
       <button class="segmented__btn" type="button" id="tab-stopwatch"
@@ -96,7 +98,7 @@
         </defs>
         <circle class="dial__track" cx="130" cy="130" r="118"/>
         <circle class="dial__progress" id="ringProgress" cx="130" cy="130" r="118" stroke="url(#ringGrad)"/>
-        <circle class="dial__head" id="ringHead" cx="130" cy="130" r="118"/>
+        <circle class="dial__head" id="ringHead" cx="130" cy="130" r="5"/>
       </svg>
 
       <div class="dial__inner">
@@ -139,8 +141,44 @@
     </div>
 
     <p class="today" id="todayLine">Ready when you are</p>
-    <p class="today today--sub" id="planLine" hidden></p>
-    <p class="today today--sub" id="nextLine" hidden></p>
+
+    </div><!-- /.stage__clock -->
+
+    <!-- ══════════ What the day still asks of you ══════════
+         The session due now (or next), the tasks that are left, and the way
+         back into the timetable — all without opening the drawer. -->
+    <section class="agenda" id="agenda" aria-label="Today’s plan" hidden>
+      <div class="agenda__head">
+        <span class="agenda__state" id="agendaState">Next up</span>
+        <span class="agenda__count" id="agendaCount"></span>
+      </div>
+
+      <div class="agenda__body" id="agendaBody" data-single="false">
+        <div class="agenda__session" id="agendaSession">
+          <p class="agenda__subject" id="agendaSubject"></p>
+          <p class="agenda__when" id="agendaWhen"></p>
+          <div class="agenda__bar" id="agendaProgress" aria-hidden="true">
+            <span id="agendaBar"></span>
+          </div>
+        </div>
+
+        <div class="agenda__work" id="agendaWork" hidden>
+          <p class="agenda__work-head" id="agendaWorkHead">Pending</p>
+          <ul class="agenda__tasks" id="agendaTasks"></ul>
+          <p class="agenda__subjects" id="agendaSubjects" hidden></p>
+        </div>
+      </div>
+
+      <div class="agenda__foot" id="agendaFoot" data-single="false">
+        <button class="btn btn--soft btn--sm agenda__cta" id="agendaContinue" type="button">
+          <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+            <path d="M8 5.5v13l11-6.5z"/>
+          </svg>
+          <span id="agendaContinueText">Continue Timetable</span>
+        </button>
+        <a class="agenda__link" href="./plan.html">Open plan</a>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -436,6 +474,7 @@
           <li><kbd>Space</kbd> Start / pause</li>
           <li><kbd>R</kbd> Reset</li>
           <li><kbd>S</kbd> Switch mode</li>
+          <li><kbd>C</kbd> Continue timetable</li>
           <li><kbd>P</kbd> Plan page</li>
           <li><kbd>A</kbd> Add time</li>
           <li><kbd>F</kbd> Distraction-free</li>

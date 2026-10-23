@@ -1729,6 +1729,10 @@ body.planpage {
   margin-top: 3px;
   font-size: 12.5px;
   color: var(--text-faint);
+  transition: color 280ms var(--ease);
+}
+.plan__sub[data-save="1"]::after {
+  content: ' · Saved locally';
 }
 .plan__actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -1785,7 +1789,7 @@ body.planpage {
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  gap: 14px;
 }
 .grid__col { min-width: 0; }
 .grid__coltitle {
@@ -1796,10 +1800,10 @@ body.planpage {
   text-transform: uppercase;
   color: var(--text-faint);
 }
-.grid__body { display: flex; gap: 8px; }
+.grid__body { display: flex; gap: 6px; }
 
 .grid__gutter {
-  width: 46px;
+  width: 34px;
   flex: none;
   display: grid;
   grid-template-rows: repeat(24, var(--slot-h));
@@ -2110,7 +2114,7 @@ body.planpage .inspector__dot[data-kind="life"]  { background: var(--plan-life);
 }
 
 /* ── Plan page specific ─────────────────────────────────── */
-.planpage__workspace { max-width: 1240px; }
+.planpage__workspace { max-width: 1180px; }
 
 body.planpage .btn--primary {
   background: linear-gradient(180deg, #FFFFFF 0%, #F0F4FF 100%);
@@ -2576,8 +2580,9 @@ body.landing { background: var(--bg); }
   .nav__links { display: none; }
 }
 @media (max-width: 760px) {
-  .grid { grid-template-columns: 1fr; }
-  .grid__gutter { width: 38px; }
+  .grid { grid-template-columns: 1fr; gap: 14px; }
+  .grid__body { gap: 6px; }
+  .grid__gutter { width: 30px; }
 }
 @media (max-width: 520px) {
   .plan__datebar { gap: 8px; }
@@ -2882,6 +2887,16 @@ body.landing { background: var(--bg); }
 .printdoc--zen .pdoc-dur { font-size: 8.4pt; }
 .printdoc--zen .pdoc-act { font-size: 10.4pt; }
 .printdoc--zen .pdoc-empty { padding: 12mm 0; text-align: center; }
+
+/* Download PDF / full-page export: fill the A4 sheet, even on an empty day. */
+.printdoc--pdf {
+  min-height: 297mm;
+}
+.printdoc--pdf:empty::before {
+  content: '';
+  display: block;
+  min-height: 297mm;
+}
 
 /* ── the print dialog ────────────────────────────────────── */
 .modal--print { width: min(780px, calc(100vw - 28px)); }

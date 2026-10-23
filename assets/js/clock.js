@@ -68,8 +68,24 @@ const el = {
   stopBtn: $('stopBtn'),
   resetBtn: $('resetBtn'),
   todayLine: $('todayLine'),
-  planLine: $('planLine'),
-  nextLine: $('nextLine'),
+
+  // The day card under the clock
+  agenda: $('agenda'),
+  agendaState: $('agendaState'),
+  agendaCount: $('agendaCount'),
+  agendaBody: $('agendaBody'),
+  agendaSession: $('agendaSession'),
+  agendaSubject: $('agendaSubject'),
+  agendaWhen: $('agendaWhen'),
+  agendaProgress: $('agendaProgress'),
+  agendaBar: $('agendaBar'),
+  agendaWork: $('agendaWork'),
+  agendaWorkHead: $('agendaWorkHead'),
+  agendaTasks: $('agendaTasks'),
+  agendaSubjects: $('agendaSubjects'),
+  agendaFoot: $('agendaFoot'),
+  agendaContinue: $('agendaContinue'),
+  agendaContinueText: $('agendaContinueText'),
 
   settingsBtn: $('settingsBtn'),
   settingsPanel: $('settingsPanel'),
@@ -151,6 +167,8 @@ let lastTimeText = '';
 let lastTitle = '';
 let lastRingVisible = null;
 let lastTodayText = '';
+let lastAgendaSig = '';
+let agendaLive = null;      // the block the card is counting through right now
 let lastTickSecond = -1;
 let toastTimer = null;
 let lastFocusTarget = null;
@@ -665,8 +683,11 @@ function render() {
   }
 
   const angle = progress * Math.PI * 2;
-  const hx = RING_CX + RING_R * Math.sin(angle);
-  const hy = RING_CY - RING_R * Math.cos(angle);
+  // The whole ring is rotated -90° so progress starts at twelve o'clock.
+  // The head is painted in that same rotated frame — otherwise it would sit a
+  // quarter turn behind the tip of the stroke.
+  const hx = RING_CX + RING_R * Math.cos(angle);
+  const hy = RING_CY + RING_R * Math.sin(angle);
   el.ringHead.setAttribute('cx', hx.toFixed(2));
   el.ringHead.setAttribute('cy', hy.toFixed(2));
   el.ringHead.dataset.show = progress > 0.004 && progress < 0.999 ? 'true' : 'false';
@@ -710,6 +731,8 @@ function render() {
   // Keep the session on the disk up to date while it runs — this is what
   // makes the time safe when the app is closed without the timer being stopped.
   if (T.status === 'running') syncLiveSession();
+  // The day card counts in the same frame, so it never lags the readout.
+  updateAgendaClock();
   renderToday();
 }
 
@@ -724,6 +747,7 @@ function updateControls() {
     : '<path d="M8 5.5v13l11-6.5z" fill="currentColor"/>';
   el.stopBtn.hidden = !running && !paused;
   el.resetBtn.textContent = 'Reset';
+  renderAgenda();
 }
 
 function renderToday() {
@@ -742,7 +766,7 @@ function renderToday() {
     lastTodayText = text;
     el.todayLine.textContent = text;
   }
-  renderPlanLine();
+  renderAgenda();
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -949,7 +973,7 @@ function planTick() {
 
   // 3 — paint.
   renderPlanPanel();
-  renderPlanLine();
+  renderAgenda();
 }
 
 /**
@@ -957,11 +981,35 @@ function planTick() {
  *
  * Started by hand it runs for its full length; started by the autopilot it
  * joins the block where it already is.
+ *
+ * A live run is never thrown away silently. Starting the timetable while
+ * something else is on the clock asks first — the autopilot, which has no one
+ * to ask, simply waits for the clock to be idle.
  */
 function startPlanBlock(block, opts = {}) {
   const date = opts.date || dateKey(Date.now());
   const full = (block.endMin - block.startMin) * 60000;
   if (!full) return;
+
+  if (T.status === 'running' || T.status === 'paused') {
+    if (T.sessionId === block.id) {
+      if (T.status === 'paused') {
+        start();
+        showToast(`Resumed ${block.label}`);
+      } else {
+        showToast(`${block.label} is already running`);
+      }
+      return;
+    }
+    if (opts.auto) return;
+    const runningName = T.subject || (T.mode === 'timer' ? 'the current timer' : 'the stopwatch');
+    const ok = window.confirm(
+      `“${runningName}” is still running. Stop it and start “${block.label}”?`
+    );
+    if (!ok) return;
+    // Ending the run by hand keeps the time that was really spent in the log.
+    stop();
+  }
 
   closePopover();
 
@@ -982,7 +1030,6 @@ function startPlanBlock(block, opts = {}) {
   T.subject = block.label;
   T.sessionId = block.id;
   T.accumulated = 0;
-  T.status = 'idle';
 
   start({ target: remaining });
   showToast(`${block.label} started`);
@@ -1003,7 +1050,8 @@ function continueTimetable(date = dateKey(Date.now())) {
   }
   const isToday = date === dateKey(Date.now());
   const mins = minutesOfDay(Date.now());
-  const { current, next } = dayProgress(plan.blocks, mins, isToday);
+  const open = plan.blocks.filter(b => !(plan.done && plan.done[b.id]));
+  const { current, next } = dayProgress(open, mins, isToday);
   const block = current || next;
   if (!block) {
     showToast('That day is done — nothing left to run');
@@ -1128,7 +1176,7 @@ function renderSavedPlans() {
       });
       save(state);
       renderPlanPanel();
-      renderPlanLine();
+      renderAgenda();
       showToast(`Plan copied to ${labelDate(rec.date, { month: 'short', day: 'numeric' })}`);
     });
 
@@ -1210,38 +1258,218 @@ function renderActivityList() {
   }
 }
 
+/* ── The day card under the clock ─────────────────────────── */
+
 /**
- * Two quiet lines on the clock screen: what is running now, and what comes
- * next. The second one is what makes “Continue Timetable” useful — you always
- * know what the clock is about to hand you.
+ * The card under the clock: the session that is due now (or next), the work
+ * that is still open, and a way back into the timetable.
+ *
+ * It is deliberately quiet. The clock stays the hero; the card only answers
+ * the two questions a person has while a timer runs — *what am I supposed to
+ * be doing* and *what is left* — without making them open the drawer.
+ *
+ * Rebuilding the card is guarded by a signature, because `renderToday()` runs
+ * on every animation frame. The live countdown and the progress bar are
+ * painted separately, so a task button never loses focus just because a
+ * minute ticked over.
  */
-function renderPlanLine() {
+function renderAgenda() {
   const now = Date.now();
-  const plan = planFor(dateKey(now));
+  const date = dateKey(now);
+  const plan = planFor(date);
   const mins = minutesOfDay(now);
-  const { current, next } = dayProgress(plan.blocks, mins, true);
+  const done = plan.done || {};
 
-  let text = '';
-  if (current) text = `${current.label} · until ${clockLabel(current.endMin)}`;
-  else if (next) text = `Next: ${next.label} at ${clockLabel(next.startMin)}`;
-  else if (plan.blocks.length) text = 'Plan complete';
+  // A block that has already been run is finished — the card should look
+  // ahead instead of offering it again.
+  const open = plan.blocks.filter(b => !done[b.id]);
+  const { current, next } = dayProgress(open, mins, true);
+  const block = current || next;
 
-  let nextText = '';
-  if (current && next) nextText = `Next: ${next.label} at ${clockLabel(next.startMin)}`;
+  const tasks = (Array.isArray(plan.tasks) ? plan.tasks : []).filter(t => !t.done);
+  const subjects = (Array.isArray(plan.imported?.subjects) ? plan.imported.subjects : [])
+    .filter(s => Number(s.total) > 0 && Number(s.done) < Number(s.total));
+  const hasBlocks = plan.blocks.length > 0;
+  const hasWork = tasks.length > 0 || subjects.length > 0;
 
-  // This runs on every frame — only touch the DOM when the line really changed.
-  if (!text) {
-    if (!el.planLine.hidden) el.planLine.hidden = true;
-  } else if (el.planLine.hidden || el.planLine.textContent !== text) {
-    el.planLine.hidden = false;
-    el.planLine.textContent = text;
+  if (!hasBlocks && !hasWork) {
+    if (!el.agenda.hidden) el.agenda.hidden = true;
+    lastAgendaSig = '';
+    agendaLive = null;
+    return;
+  }
+  el.agenda.hidden = false;
+
+  const phase = current ? 'now' : (block ? 'next' : 'done');
+  const sig = [
+    hasBlocks ? '1' : '0',
+    open.map(b => b.id).join(','),
+    current ? current.id : '',
+    next ? next.id : '',
+    T.status,
+    T.sessionId || '',
+    tasks.map(t => `${t.id}:${t.text}`).join(','),
+    subjects.map(s => `${s.name}:${s.done}/${s.total}`).join(','),
+  ].join('|');
+
+  if (sig === lastAgendaSig) {
+    updateAgendaClock();
+    return;
+  }
+  lastAgendaSig = sig;
+
+  el.agenda.dataset.state = phase;
+  el.agenda.dataset.live = current ? 'true' : 'false';
+  el.agendaState.textContent = phase === 'now' ? 'Now' : (phase === 'next' ? 'Next up' : 'Plan complete');
+
+  const taskWord = tasks.length === 1 ? 'task' : 'tasks';
+  const subjectWord = subjects.length === 1 ? 'subject' : 'subjects';
+  el.agendaCount.textContent = tasks.length
+    ? `${tasks.length} ${taskWord} left`
+    : (subjects.length
+        ? `${subjects.length} ${subjectWord} left`
+        : (hasBlocks ? 'All clear' : ''));
+
+  // ── the session column ──
+  const showSession = !!block || hasBlocks;
+  el.agendaSession.hidden = !showSession;
+
+  if (block) {
+    const range = `${clockLabel(block.startMin)} – ${clockLabel(block.endMin)}`;
+    el.agendaSubject.textContent = block.label;
+    el.agendaProgress.hidden = !current;
+    agendaLive = {
+      current: !!current,
+      startMin: block.startMin,
+      endMin: block.endMin,
+      range,
+      lastWhen: '',
+    };
+    updateAgendaClock();
+  } else if (hasBlocks) {
+    // Every block has been dealt with: keep the card, but say so plainly.
+    el.agendaSubject.textContent = 'Plan complete';
+    el.agendaWhen.textContent = hasWork
+      ? 'The timetable is done — these are the tasks that are left'
+      : 'Every block for today has been run';
+    el.agendaProgress.hidden = true;
+    el.agendaBar.style.transform = 'scaleX(0)';
+    agendaLive = null;
+  } else {
+    el.agendaProgress.hidden = true;
+    el.agendaBar.style.transform = 'scaleX(0)';
+    agendaLive = null;
   }
 
-  if (!nextText) {
-    if (!el.nextLine.hidden) el.nextLine.hidden = true;
-  } else if (el.nextLine.hidden || el.nextLine.textContent !== nextText) {
-    el.nextLine.hidden = false;
-    el.nextLine.textContent = nextText;
+  // ── the work column ──
+  el.agendaWork.hidden = !hasWork;
+  el.agendaBody.dataset.single = (!showSession || !hasWork) ? 'true' : 'false';
+
+  el.agendaTasks.innerHTML = '';
+  if (tasks.length) {
+    el.agendaWorkHead.hidden = false;
+    el.agendaWorkHead.textContent = `Pending · ${tasks.length}`;
+    for (const t of tasks.slice(0, 3)) el.agendaTasks.appendChild(agendaTaskRow(t, date));
+  } else {
+    el.agendaWorkHead.hidden = !subjects.length;
+    el.agendaWorkHead.textContent = 'Subjects';
+  }
+
+  if (subjects.length) {
+    el.agendaSubjects.hidden = false;
+    el.agendaSubjects.textContent = subjects
+      .slice(0, 4)
+      .map(s => `${s.name} ${s.done}/${s.total}`)
+      .join(' · ')
+      + (subjects.length > 4 ? ` · +${subjects.length - 4}` : '');
+    el.agendaSubjects.title = subjects.map(s => `${s.name} ${s.done}/${s.total}`).join('\n');
+  } else {
+    el.agendaSubjects.hidden = true;
+    el.agendaSubjects.textContent = '';
+    el.agendaSubjects.title = '';
+  }
+
+  // ── the way back in ──
+  const live = T.status === 'running' || T.status === 'paused';
+  const onThisBlock = live && block && T.sessionId && T.sessionId === block.id;
+  el.agendaContinue.hidden = !block;
+  el.agendaFoot.dataset.single = block ? 'false' : 'true';
+  if (block) {
+    el.agendaContinueText.textContent = onThisBlock
+      ? (T.status === 'paused' ? 'Resume timetable' : 'Timetable running')
+      : (live ? 'Switch to timetable' : 'Continue Timetable');
+    el.agendaContinue.dataset.state = onThisBlock
+      ? (T.status === 'paused' ? 'paused' : 'running')
+      : 'ready';
+  }
+}
+
+/** One task line in the card — checkable, so the clock can tick work off. */
+function agendaTaskRow(task, date) {
+  const row = document.createElement('li');
+  row.className = 'agenda__task';
+
+  const check = document.createElement('button');
+  check.type = 'button';
+  check.className = 'taskcheck';
+  check.setAttribute('aria-label', `Mark "${task.text}" as done`);
+  check.setAttribute('aria-pressed', 'false');
+  check.addEventListener('click', () => {
+    // Re-read the plan: another tab, or the plan page, may have changed it.
+    const plan = planFor(date);
+    plan.tasks = (Array.isArray(plan.tasks) ? plan.tasks : [])
+      .map(t => (t.id === task.id ? { ...t, done: true } : t));
+    setPlan(state, date, plan);
+    lastAgendaSig = '';
+    renderAgenda();
+    renderPlanPanel();
+    uiClick();
+  });
+
+  const text = document.createElement('span');
+  text.className = 'agenda__task-text';
+  text.textContent = task.text;
+
+  row.append(check, text);
+
+  if (task.stage) {
+    const stage = document.createElement('span');
+    stage.className = 'agenda__task-stage';
+    stage.textContent = task.stage;
+    row.appendChild(stage);
+  }
+
+  return row;
+}
+
+/**
+ * Paint the live parts of the card — the time left and the bar.
+ *
+ * Called from the render loop, so it does the smallest possible amount of
+ * work: one string comparison and one transform.
+ */
+function updateAgendaClock() {
+  if (!agendaLive || el.agenda.hidden) return;
+  const mins = minutesOfDay(Date.now());
+  const { current, startMin, endMin } = agendaLive;
+
+  let when = agendaLive.range;
+  if (current) {
+    const left = Math.max(0, endMin - mins);
+    when += ` · ${formatDuration(left * 60000)} left`;
+  } else {
+    const until = Math.max(0, startMin - mins);
+    when += ` · in ${formatDuration(until * 60000)}`;
+  }
+  if (when !== agendaLive.lastWhen) {
+    agendaLive.lastWhen = when;
+    el.agendaWhen.textContent = when;
+  }
+
+  if (current) {
+    const span = endMin - startMin;
+    const pct = span > 0 ? clamp((mins - startMin) / span, 0, 1) : 0;
+    el.agendaBar.style.transform = `scaleX(${pct.toFixed(4)})`;
   }
 }
 
@@ -1254,7 +1482,7 @@ function clearTodayPlan() {
   if (!window.confirm('Clear today’s plan?')) return;
   setPlan(state, date, { ...planFor(date), blocks: [], imported: null });
   renderPlanPanel();
-  renderPlanLine();
+  renderAgenda();
   showToast('Today’s plan cleared');
 }
 
@@ -1512,7 +1740,7 @@ function bindSettings() {
     // The clock format is used by the history, the plan and the home line.
     renderStats();
     renderPlanPanel();
-    renderPlanLine();
+    renderAgenda();
     render();
   });
   bindToggle('setFocusMode', 'focusMode', () => applyAppearance());
@@ -2029,6 +2257,12 @@ function bindEvents() {
     if (el.metaLabel.dataset.interactive === 'true') openPopover();
   });
 
+  // The quiet way back into the timetable, right on the clock.
+  el.agendaContinue.addEventListener('click', () => {
+    continueTimetable(dateKey(Date.now()));
+    uiClick();
+  });
+
   // Popover
   el.durationClose.addEventListener('click', closePopover);
   el.durationApply.addEventListener('click', () => applyDuration(parseInt(el.durationInput.value, 10)));
@@ -2189,6 +2423,8 @@ function onKeyDown(e) {
     reset();
   } else if (e.key === 's' || e.key === 'S') {
     setMode(T.mode === 'timer' ? 'stopwatch' : 'timer');
+  } else if (e.key === 'c' || e.key === 'C') {
+    continueTimetable(dateKey(Date.now()));
   } else if (e.key === 'a' || e.key === 'A') {
     openAddDialog();
   } else if (e.key === 'f' || e.key === 'F') {

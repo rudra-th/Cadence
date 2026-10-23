@@ -20,7 +20,6 @@
 <link rel="preload" href="./assets/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="./assets/css/styles.css">
 <link rel="stylesheet" href="./assets/css/landing.css">
-<link rel="stylesheet" href="https://unpkg.com/lenis@1.1.13/dist/lenis.css">
 <script>
   /* The theme is set before the first paint, so the landing page and the
      workspace always open in the same palette. */
@@ -55,11 +54,10 @@
   </a>
 
   <nav class="nav__links" aria-label="Sections">
+    <a href="#story">Story</a>
     <a href="#features">Overview</a>
     <a href="#how">Workflow</a>
-    <a href="#planner">Planner</a>
-    <a href="#clock">Clock</a>
-    <a href="#local">Local</a>
+    <a href="#local">Privacy</a>
   </nav>
 
   <div class="nav__actions">
@@ -194,6 +192,88 @@
         <div class="scroll-indicator__wheel"></div>
       </div>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+    </div>
+  </section>
+
+  <!-- ══════════ Scrollytelling ══════════ -->
+  <section class="wrap section storytelling" id="story">
+    <div class="section__head">
+      <p class="section__kicker">Your day, orchestrated</p>
+      <h2>From intention to <span class="gradient-text">flow state</span></h2>
+      <p class="section__lede">
+        Every minute has purpose. Every block builds momentum. Watch your day unfold in perfect rhythm.
+      </p>
+    </div>
+
+    <div class="story">
+      <div class="story__item" data-story="1">
+        <div class="story__content">
+          <span class="story__number">01</span>
+          <h3>Envision</h3>
+          <p>See your entire day at a glance. Map out your priorities, study sessions, rest, and everything in between on a beautiful 24-hour canvas.</p>
+        </div>
+        <div class="story__visual">
+          <div class="story__mockup">
+            <div class="story__mockup-header"></div>
+            <div class="story__mockup-grid">
+              <div class="story__mockup-row"><span></span><div class="story__mockup-block" style="width: 40%; background: linear-gradient(90deg, #7FA6FF, transparent);"></div></div>
+              <div class="story__mockup-row"><span></span><div class="story__mockup-block" style="width: 60%; background: linear-gradient(90deg, #63C9A4, transparent); margin-left: 10%;"></div></div>
+              <div class="story__mockup-row"><span></span><div class="story__mockup-block" style="width: 30%; background: linear-gradient(90deg, #E9B667, transparent); margin-left: 40%;"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="story__item story__item--reverse" data-story="2">
+        <div class="story__content">
+          <span class="story__number">02</span>
+          <h3>Execute</h3>
+          <p>The clock knows your plan. Switch over and your current block is ready. Auto-run mode keeps you in flow without breaking your momentum.</p>
+        </div>
+        <div class="story__visual">
+          <div class="story__dial-large">
+            <svg viewBox="0 0 120 120">
+              <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
+              <circle cx="60" cy="60" r="50" fill="none" stroke="url(#storyGrad)" stroke-width="8"
+                      stroke-linecap="round" stroke-dasharray="314" stroke-dashoffset="78"
+                      transform="rotate(-90 60 60)"/>
+              <defs>
+                <linearGradient id="storyGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#7FA6FF"/>
+                  <stop offset="100%" stop-color="#63C9A4"/>
+                </linearGradient>
+              </defs>
+            </svg>
+            <div class="story__dial-content">
+              <div class="story__dial-time">24:58</div>
+              <div class="story__dial-label">Deep Work</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="story__item" data-story="3">
+        <div class="story__content">
+          <span class="story__number">03</span>
+          <h3>Reflect</h3>
+          <p>Track your momentum. See weekly totals, build streaks, and understand where your time actually goes. Every session is logged with precision.</p>
+        </div>
+        <div class="story__visual">
+          <div class="story__stats-card">
+            <div class="story__stats-row">
+              <span>This week</span>
+              <span style="color: var(--text);">32h 45m</span>
+            </div>
+            <div class="story__stats-bar">
+              <div style="width: 70%; background: linear-gradient(90deg, #7FA6FF, #63C9A4);"></div>
+            </div>
+            <div class="story__stats-row" style="margin-top: 16px;">
+              <span>Streak</span>
+              <span style="color: #63C9A4;">🔥 12 days</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -395,14 +475,23 @@
   <!-- ══════════ Closing call to action ══════════ -->
   <section class="wrap section">
     <div class="cta">
-      <h2>Give the day a shape</h2>
-      <p>
-        Paint tomorrow, then let the clock run it. Everything is stored on this
-        device — nothing to sign up for.
-      </p>
-      <div class="cta__actions">
-        <a class="btn btn--primary" href="./plan.html">Plan your day</a>
-        <a class="btn btn--soft" href="./clock.html">Open the clock</a>
+      <div class="cta__bg">
+        <div class="cta__orb cta__orb--1"></div>
+        <div class="cta__orb cta__orb--2"></div>
+      </div>
+      <div class="cta__content">
+        <h2>Give your day <span class="gradient-text">purpose</span></h2>
+        <p>
+          Paint tomorrow with intention, then let the clock guide you through it.
+          Everything stays on your device — no account, no tracking.
+        </p>
+        <div class="cta__actions">
+          <a class="btn btn--primary btn--glow" href="./plan.html">
+            <span>Start Planning Free</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </a>
+          <a class="btn btn--soft btn--glass" href="./clock.html">Open the Clock</a>
+        </div>
       </div>
     </div>
   </section>
@@ -410,18 +499,17 @@
 
 <footer class="footer">
   <div class="wrap" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
-    <span>Cadence <span id="landingVersion">1.0.0</span> · plan the day, run the day</span>
+    <span>Cadence <span id="landingVersion">1.0.0</span> · Time-blocking reimagined</span>
     <div class="footer__links">
       <a href="./plan.html">Plan</a>
       <a href="./clock.html">Clock</a>
+      <a href="./index.html">Home</a>
       <a href="./manifest.webmanifest">Manifest</a>
     </div>
   </div>
 </footer>
 
-<script src="https://unpkg.com/lenis@1.1.13/dist/lenis.min.js"></script>
-<script src="https://unpkg.com/gsap@3/dist/gsap.min.js"></script>
-<script src="https://unpkg.com/gsap@3/dist/ScrollTrigger.min.js"></script>
+<script src="./assets/vendor/lenis.min.js" defer></script>
 <script type="module" src="./assets/js/landing.js"></script>
 </body>
 </html>

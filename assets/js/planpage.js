@@ -70,6 +70,7 @@ const el = {
   planSaveTimer: $('planSaveTimer'),
   planPrint: $('planPrint'),
   printDoc: $('printDoc'),
+  planDownloadPdf: $('planDownloadPdf'),
   printDialog: $('printDialog'),
   printPreview: $('printPreview'),
   printHint: $('printHint'),
@@ -232,11 +233,18 @@ function renderHeader() {
   const bits = [];
   if (isToday) bits.push('Today');
   bits.push(`${summary.blocks} block${summary.blocks === 1 ? '' : 's'}`);
-  if (summary.studyMin) bits.push(`${humanDuration(summary.studyMin * 60000)} study`);
-  if (summary.restMin) bits.push(`${humanDuration(summary.restMin * 60000)} rest`);
-  if (summary.freeMin) bits.push(`${humanDuration(summary.freeMin * 60000)} free`);
-  if (summary.tasks) bits.push(`${summary.tasksDone}/${summary.tasks} tasks`);
+  bits.push(`${humanDuration(summary.studyMin * 60000)} study`);
+  bits.push(`${humanDuration(summary.restMin * 60000)} rest`);
+  bits.push(`${humanDuration(summary.freeMin * 60000)} free`);
+  bits.push(`${summary.tasksDone}/${summary.tasks} tasks`);
   el.planSub.textContent = bits.join(' · ');
+
+  if (el.planSub) {
+    const t = el.planSub.dataset.saveT;
+    clearTimeout(t);
+    el.planSub.dataset.save = '1';
+    el.planSub.dataset.saveT = setTimeout(() => { el.planSub.dataset.save = ''; }, 900).toString();
+  }
 
   if (el.planUndo) el.planUndo.disabled = !history.length;
   if (el.planRedo) el.planRedo.disabled = !future.length;
@@ -310,6 +318,9 @@ function openPrintDialog() {
     printPlan();
     return;
   }
+  delete el.printDialog.dataset.pdf;
+  const go = el.printGo;
+  if (go) go.textContent = 'Print';
   syncPrintControls();
   renderPrintPreview();
   if (!el.printDialog.open) el.printDialog.showModal();
@@ -320,6 +331,84 @@ function printPlan() {
   renderPrintDoc();
   document.documentElement.dataset.printTheme = printOpts.theme;
   window.print();
+}
+
+let pdfMode = false;
+
+/** Open the style dialog and download the day as a PDF straight away. */
+async function downloadPdf() {
+  if (!el.printDialog || typeof el.printDialog.showModal !== 'function') {
+    prepareForPdf();
+    try {
+      await downloadPlanPdf();
+    } finally {
+      endPdf();
+    }
+    return;
+  }
+  syncPrintControls();
+  renderPrintPreview();
+  el.printDialog.dataset.pdf = '1';
+  const go = el.printGo;
+  const oldLabel = go?.textContent;
+  if (go) go.textContent = 'Download';
+  try {
+    if (!el.printDialog.open) el.printDialog.showModal();
+  } catch {}
+  const onClose = async () => {
+    if (el.printDialog?.dataset.pdf !== '1') { if (go && oldLabel) go.textContent = oldLabel; return; }
+    delete el.printDialog.dataset.pdf;
+    if (go && oldLabel) go.textContent = oldLabel;
+    prepareForPdf();
+    try { await downloadPlanPdf(); } finally { endPdf(); }
+  };
+  el.printDialog.addEventListener('close', onClose, { once: true });
+}
+
+/** Trigger the download of the current sheet as a PDF. */
+async function downloadPlanPdf() {
+  const sheet = el.printDoc;
+  if (!sheet) throw new Error('no print sheet');
+  // Force the browser to print-to-PDF via the system dialog. Opening a new window
+  // and calling print() with the isolated document is the most reliable way to get
+  // a downloadable PDF without bundling a heavy renderer.
+  const win = window.open('', '_blank');
+  if (win) {
+    try {
+      const title = 'Cadence — ' + labelDate(currentDate, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).replace(/,/g, '') + '.pdf';
+      const styles = [...document.querySelectorAll('link[rel=stylesheet], style')]
+        .map((n) => n.outerHTML)
+        .join('\n');
+      win.document.open();
+      win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title>' + styles);
+      win.document.write('<style>html,body{margin:0;padding:0;background:#fff}body{background:#fff}.aurora,.topbar,.controls,.subcontrols,.drawer,.scrim,.modal,.toast,.dropveil{display:none!important}body.planpage>*:not(.printdoc){display:none!important}.printdoc{display:block!important;min-height:297mm}</style>');
+      win.document.write('</head><body class="planpage">');
+      win.document.write(sheet.outerHTML);
+      win.document.write('<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},150)})</script>');
+      win.document.write('</body></html>');
+      win.document.close();
+      return;
+    } catch {
+      try { win.close(); } catch {}
+    }
+  }
+  window.print();
+}
+
+
+/** Build the print sheet in A4, ready to capture as a PDF. */
+function prepareForPdf() {
+  pdfMode = true;
+  if (el.printDoc) el.printDoc.classList.add('printdoc--pdf');
+  renderPrintDoc();
+  document.documentElement.dataset.printTheme = printOpts.theme;
+}
+
+/** Stop forcing full-page layout after a PDF export. */
+function endPdf() {
+  pdfMode = false;
+  if (el.printDoc) el.printDoc.classList.remove('printdoc--pdf');
+  delete document.documentElement.dataset.printTheme;
 }
 
 function renderWeekStrip() {
@@ -1034,10 +1123,17 @@ function bindEvents() {
 
   el.printClose?.addEventListener('click', () => el.printDialog?.close());
   el.printCancel?.addEventListener('click', () => el.printDialog?.close());
+  el.planDownloadPdf?.addEventListener('click', () => { downloadPdf(); });
   el.printGo?.addEventListener('click', () => {
+    if (el.printDialog?.dataset.pdf === '1') {
+      el.printDialog.close();
+      return;
+    }
     el.printDialog?.close();
     printPlan();
   });
+
+  el.printDialog?.addEventListener('change', (e) => {
 
   el.printDialog?.addEventListener('change', (e) => {
     const input = e.target;

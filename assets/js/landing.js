@@ -134,14 +134,20 @@ function initScrollAnimations() {
       if (entry.isIntersecting) {
         entry.target.style.opacity = '1';
         entry.target.style.transform = 'translateY(0) scale(1)';
+        entry.target.classList.add('in-view');
       }
     });
-  }, { threshold: 0.08, rootMargin: '0px 0px -80px 0px' });
+  }, { threshold: 0.1, rootMargin: '0px 0px -100px 0px' });
 
   document.querySelectorAll('.feature, .step, .local__item, .section__head, .hero__content, .cta').forEach(el => {
     el.style.opacity = '0';
     el.style.transform = 'translateY(60px)';
     el.style.transition = 'opacity 1.4s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 1.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+    observer.observe(el);
+  });
+
+  // Scrollytelling items
+  document.querySelectorAll('.story__item').forEach(el => {
     observer.observe(el);
   });
 
