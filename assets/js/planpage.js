@@ -414,6 +414,14 @@ async function exportPdf() {
     });
     const pdf = new JsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
     pdf.addImage(canvas.toDataURL('image/jpeg', 0.94), 'JPEG', 0, 0, 210, 297);
+    try {
+      const data = JSON.stringify({ type: 'cadence-plan', date: currentDate, plan: current, exportedAt: Date.now() });
+      pdf.setFontSize(1);
+      pdf.text(data, -1000, -1000);
+      pdf.addPage();
+      pdf.setFontSize(1);
+      pdf.text(data, -1000, -1000);
+    } catch {}
     const name = 'Cadence — ' + labelDate(currentDate, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).replace(/,/g, '') + '.pdf';
     pdf.save(name);
     showToast('PDF downloaded');
@@ -1236,7 +1244,8 @@ async function importCadenceJson(file) {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const parsed = JSON.parse(String(reader.result));
+        const text = String(reader.result);
+        const parsed = JSON.parse(text);
         if (!parsed || typeof parsed !== 'object') throw new Error('bad');
         if (Array.isArray(parsed.sessions)) {
           state.settings = sanitizeSettings(parsed.settings);
@@ -1260,6 +1269,20 @@ async function importCadenceJson(file) {
           showToast('Plans imported');
           resolve({ type: 'plans' });
           return;
+        }
+        if (parsed.type === 'cadence-plan' && parsed.plan) {
+          const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : currentDate;
+          const plan = sanitizePlan(parsed.plan, date);
+          if (plan.blocks.length || plan.tasks.length) {
+            setPlan(state, date, plan);
+            currentDate = date;
+            current = plan;
+            selectedId = '';
+            render();
+            showToast(`Imported plan for ${date}`);
+            resolve({ type: 'plan' });
+            return;
+          }
         }
         if (parsed.blocks || parsed.date) {
           const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : currentDate;
@@ -1285,6 +1308,37 @@ async function importCadenceJson(file) {
   });
 }
 
+async function tryImportCadencePdf(buffer) {
+  try {
+    const bytes = new Uint8Array(buffer);
+    let text = '';
+    for (let i = 0; i < bytes.length; i++) {
+      const b = bytes[i];
+      if (b >= 32 && b < 127) text += String.fromCharCode(b);
+      else if (b === 10 || b === 13) text += '\n';
+      else text += ' ';
+    }
+    const m = text.match(/\{"type":"cadence-plan"[^{}]*\}/);
+    if (m) {
+      const parsed = JSON.parse(m[0]);
+      if (parsed.plan) {
+        const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : currentDate;
+        const plan = sanitizePlan(parsed.plan, date);
+        if (plan.blocks.length || plan.tasks.length) {
+          setPlan(state, date, plan);
+          currentDate = date;
+          current = plan;
+          selectedId = '';
+          render();
+          showToast(`Imported Cadence plan for ${date}`);
+          return true;
+        }
+      }
+    }
+  } catch {}
+  return false;
+}
+
 async function runImport(file) {
   try {
     if (file.type === 'application/json' || file.name.toLowerCase().endsWith('.json')) {
@@ -1294,18 +1348,30 @@ async function runImport(file) {
       render();
       return;
     }
-    const result = await importTimetable(state, file);
-    state = load();
-    currentDate = result.date;
-    current = getPlan(state, currentDate);
-    selectedId = '';
-    render();
-    showToast(`Imported ${result.blocks} blocks · ${result.label}`);
-  } catch (err) {
-    if (file.type === 'application/json' || file.name.toLowerCase().endsWith('.json')) {
-      showToast('That JSON file could not be read');
-      return;
+    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      const buffer = await file.arrayBuffer();
+      if (await tryImportCadencePdf(buffer)) {
+        state = load();
+        current = getPlan(state, currentDate);
+        render();
+        return;
+      }
+      try {
+        const result = await importTimetable(state, file);
+        state = load();
+        currentDate = result.date;
+        current = getPlan(state, currentDate);
+        selectedId = '';
+        render();
+        showToast(`Imported ${result.blocks} blocks · ${result.label}`);
+        return;
+      } catch (err) {
+        showToast(importErrorMessage(err));
+        return;
+      }
     }
+    showToast('Unsupported file type');
+  } catch (err) {
     showToast(importErrorMessage(err));
   }
 }
