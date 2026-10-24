@@ -2479,43 +2479,58 @@ body.planpage .btn--primary:hover {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 2px 6px;
-  font-size: 10.5px;
+  padding: 0 4px 8px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-faint);
 }
 .taskgroup__count {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0;
+  padding: 2px 6px;
+  background: var(--surface-2);
+  border-radius: 6px;
 }
 .taskrow {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 8px 2px;
-  border-bottom: 1px solid var(--line);
+  gap: 12px;
+  padding: 9px 4px;
+  border-radius: 10px;
+  transition: background var(--dur-fast) var(--ease);
 }
-.taskrow:last-child { border-bottom: 0; }
+.taskrow:hover {
+  background: var(--surface-2);
+}
 .taskcheck {
   width: 20px;
   height: 20px;
   flex: none;
   border-radius: 6px;
-  border: 1px solid var(--line-3);
+  border: 1px solid var(--line-2);
   display: grid;
   place-items: center;
   color: #000;
-  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+  transition: all var(--dur-fast) var(--ease);
+}
+.taskcheck:hover {
+  border-color: var(--line-3);
+  background: var(--surface-3);
 }
 .taskcheck svg { width: 12px; height: 12px; }
-.taskrow[data-done="true"] .taskcheck { background: var(--text); border-color: var(--text); }
+.taskrow[data-done="true"] .taskcheck {
+  background: var(--text);
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+}
 .taskrow__text {
   flex: 1;
   min-width: 0;
-  font-size: 13.5px;
+  font-size: 13px;
+  line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2523,6 +2538,7 @@ body.planpage .btn--primary:hover {
 .taskrow[data-done="true"] .taskrow__text {
   color: var(--text-faint);
   text-decoration: line-through;
+  text-decoration-color: var(--text-faint);
 }
 .taskrow__stage {
   display: inline-block;
@@ -2550,14 +2566,21 @@ body.planpage .btn--primary:hover {
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  padding: 30px 40px;
-  border-radius: var(--r-lg);
-  border: 1px dashed var(--line-3);
-  background: var(--surface);
+  padding: 40px 60px;
+  border-radius: 20px;
+  border: 1px dashed var(--line-2);
+  background: radial-gradient(circle at top, rgba(255, 255, 255, 0.08) 0%, var(--surface) 70%);
   color: var(--text);
+  box-shadow: 0 40px 80px -40px rgba(255, 255, 255, 0.2);
+  animation: float 3s ease-in-out infinite;
 }
-.dropveil__card svg { width: 26px; height: 26px; color: var(--text-dim); }
-.dropveil__card p { font-size: 14px; font-weight: 550; }
+.dropveil__card svg { width: 32px; height: 32px; color: var(--text-dim); }
+.dropveil__card p { font-size: 15px; font-weight: 600; }
+.dropveil__sub { font-size: 12px; color: var(--text-faint); }
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
 
 /* ── Custom activities (drawer) ──────────────────────────── */
 .actrow {
@@ -2904,20 +2927,65 @@ body.landing { background: var(--bg); }
 .footer a:hover { color: var(--text); }
 
 /* ── Landing responsive ──────────────────────────────────── */
+@media (max-width: 1100px) {
+  .plan__main-grid {
+    grid-template-columns: 1fr;
+  }
+  .plan__right-col {
+    position: static;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+}
 @media (max-width: 900px) {
   .hero { grid-template-columns: 1fr; gap: 40px; }
   .features, .steps, .local { grid-template-columns: 1fr; }
   .nav__links { display: none; }
+  .plan__hero-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .plan__primary-actions {
+    width: 100%;
+  }
+  .plan__primary-actions .btn {
+    flex: 1;
+  }
 }
 @media (max-width: 760px) {
-  .grid { grid-template-columns: 1fr; gap: 14px; }
+  .grid { grid-template-columns: 1fr; gap: 16px; }
   .grid__body { gap: 6px; }
-  .grid__gutter { width: 30px; }
+  .grid__gutter { width: 32px; }
+  .plan__right-col {
+    grid-template-columns: 1fr;
+  }
+  .inspector {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .inspector__acts {
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
 }
 @media (max-width: 520px) {
   .plan__datebar { gap: 8px; }
   .plan__actions { width: 100%; }
+  .plan__date-section {
+    flex-wrap: wrap;
+  }
   .nav { padding-left: 16px; padding-right: 16px; }
+  .taskform__row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .taskform .input,
+  .taskform .select {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 /* ── The printed day ─────────────────────────────────────── */

@@ -719,11 +719,14 @@ function renderNow() {
 
   const label = cur ? 'Now' : (isToday ? 'Next up' : 'Starts');
   const value = cur || next;
-  bar.innerHTML = [
-    `<span class="nowbar__label">${escapeHtml(label)}</span>`,
-    `<span class="nowbar__value">${value ? escapeHtml(value.label) : '—'}</span>`,
-    value ? `<span class="nowbar__time">${escapeHtml(blockRangeLabel(value))}</span>` : '',
-  ].join('');
+  
+  const nowLabel = document.getElementById('nowLabel');
+  const nowValue = document.getElementById('nowValue');
+  const nowTime = document.getElementById('nowTime');
+  
+  if (nowLabel) nowLabel.textContent = label;
+  if (nowValue) nowValue.textContent = value ? value.label : '—';
+  if (nowTime) nowTime.textContent = value ? blockRangeLabel(value) : '—';
 }
 
 /* ── tasks ────────────────────────────────────────────────── */
