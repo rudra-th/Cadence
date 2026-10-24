@@ -13,7 +13,7 @@
  *    revalidate) — instant loads, quiet updates.
  */
 
-const VERSION = 'v1.2.3';
+const VERSION = 'v1.2.4';
 const CACHE = `cadence-${VERSION}`;
 
 const SHELL = [
@@ -38,6 +38,8 @@ const SHELL = [
   './assets/js/audio.js',
   './assets/js/pdf.js',
   './assets/js/timetable.js',
+  './assets/vendor/html2canvas.min.js',
+  './assets/vendor/jspdf.umd.min.js',
   './assets/fonts/inter-latin.woff2',
   './assets/fonts/inter-latin-ext.woff2',
   './assets/fonts/jetbrains-mono-latin.woff2',

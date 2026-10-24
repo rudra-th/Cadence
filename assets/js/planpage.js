@@ -14,7 +14,7 @@
 
 import { load, save, saveNow, getPlan, setPlan, savePlanForTimer } from './store.js';
 import {
-  SLOT_MIN, DAY_MIN, activityMap, toneOf,
+  SLOT_MIN, DAY_MIN, activityMap, toneOf, ACTIVITIES,
   paintRange, removeBlock, mergeBlocks, moveBlock, resizeBlockTo,
   planSummary, blockRangeLabel, dayProgress,
 } from './plan.js';
@@ -22,6 +22,7 @@ import { dateKey, shiftKey, labelDate, clockLabel, humanDuration, minutesOfDay, 
 import { importTimetable, importErrorMessage } from './timetable-import.js';
 import { buildPlanPrint } from './printplan.js';
 import { handOverToClock, runningSession } from './runtime.js';
+import { sanitizePlan, sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities, saveNow } from './store.js';
 
 const HALF = 24;              // squares in one column (12 hours)
 const COL_MIN = 720;          // minutes in one column
@@ -200,7 +201,17 @@ function redo() {
 function commit() {
   setPlan(state, currentDate, current);
   saveNow(state);
+  flashSaved();
   render();
+}
+
+/** Show "Saved locally" for a moment after a real planner change. */
+let savedTimer = 0;
+function flashSaved() {
+  if (!el.planSub) return;
+  el.planSub.dataset.save = '1';
+  clearTimeout(savedTimer);
+  savedTimer = setTimeout(() => { if (el.planSub) el.planSub.dataset.save = ''; }, 1400);
 }
 
 function writeBlocks(next) {
@@ -237,13 +248,12 @@ function renderHeader() {
   bits.push(`${humanDuration(summary.restMin * 60000)} rest`);
   bits.push(`${humanDuration(summary.freeMin * 60000)} free`);
   bits.push(`${summary.tasksDone}/${summary.tasks} tasks`);
-  el.planSub.textContent = bits.join(' · ');
-
   if (el.planSub) {
-    const t = el.planSub.dataset.saveT;
-    clearTimeout(t);
-    el.planSub.dataset.save = '1';
-    el.planSub.dataset.saveT = setTimeout(() => { el.planSub.dataset.save = ''; }, 900).toString();
+    el.planSub.textContent = bits.join(' · ');
+  } else if (el.planTitle) {
+    // fallback
+    const el2 = document.getElementById('planSub');
+    if (el2) el2.textContent = bits.join(' · ');
   }
 
   if (el.planUndo) el.planUndo.disabled = !history.length;
@@ -338,16 +348,12 @@ let pdfMode = false;
 /** Open the style dialog and download the day as a PDF straight away. */
 async function downloadPdf() {
   if (!el.printDialog || typeof el.printDialog.showModal !== 'function') {
-    prepareForPdf();
-    try {
-      await downloadPlanPdf();
-    } finally {
-      endPdf();
-    }
+    await exportPdf();
     return;
   }
   syncPrintControls();
   renderPrintPreview();
+  delete el.printDialog.dataset.pdfGo;
   el.printDialog.dataset.pdf = '1';
   const go = el.printGo;
   const oldLabel = go?.textContent;
@@ -356,43 +362,68 @@ async function downloadPdf() {
     if (!el.printDialog.open) el.printDialog.showModal();
   } catch {}
   const onClose = async () => {
-    if (el.printDialog?.dataset.pdf !== '1') { if (go && oldLabel) go.textContent = oldLabel; return; }
+    const confirmed = el.printDialog?.dataset.pdfGo === '1';
     delete el.printDialog.dataset.pdf;
-    if (go && oldLabel) go.textContent = oldLabel;
-    prepareForPdf();
-    try { await downloadPlanPdf(); } finally { endPdf(); }
+    delete el.printDialog.dataset.pdfGo;
+    if (go) go.textContent = oldLabel || 'Print';
+    if (confirmed) await exportPdf();
   };
   el.printDialog.addEventListener('close', onClose, { once: true });
 }
 
-/** Trigger the download of the current sheet as a PDF. */
-async function downloadPlanPdf() {
-  const sheet = el.printDoc;
-  if (!sheet) throw new Error('no print sheet');
-  // Force the browser to print-to-PDF via the system dialog. Opening a new window
-  // and calling print() with the isolated document is the most reliable way to get
-  // a downloadable PDF without bundling a heavy renderer.
-  const win = window.open('', '_blank');
-  if (win) {
-    try {
-      const title = 'Cadence — ' + labelDate(currentDate, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).replace(/,/g, '') + '.pdf';
-      const styles = [...document.querySelectorAll('link[rel=stylesheet], style')]
-        .map((n) => n.outerHTML)
-        .join('\n');
-      win.document.open();
-      win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title>' + styles);
-      win.document.write('<style>html,body{margin:0;padding:0;background:#fff}body{background:#fff}.aurora,.topbar,.controls,.subcontrols,.drawer,.scrim,.modal,.toast,.dropveil{display:none!important}body.planpage>*:not(.printdoc){display:none!important}.printdoc{display:block!important;min-height:297mm}</style>');
-      win.document.write('</head><body class="planpage">');
-      win.document.write(sheet.outerHTML);
-      win.document.write('<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},150)})</script>');
-      win.document.write('</body></html>');
-      win.document.close();
-      return;
-    } catch {
-      try { win.close(); } catch {}
-    }
+/** Load the two rendering libraries only when a PDF is actually requested. */
+function loadScriptOnce(src) {
+  if ([...document.scripts].some(s => s.src === new URL(src, location.href).href)) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error(`Could not load ${src}`));
+    document.head.appendChild(s);
+  });
+}
+
+async function exportPdf() {
+  try {
+    await Promise.all([
+      loadScriptOnce('./assets/vendor/html2canvas.min.js'),
+      loadScriptOnce('./assets/vendor/jspdf.umd.min.js'),
+    ]);
+  } catch (err) {
+    showToast('PDF library failed to load — check your connection');
+    return;
   }
-  window.print();
+  const html2canvas = window.html2canvas;
+  const JsPDF = window.jspdf?.jsPDF;
+  const sheet = el.printDoc;
+  if (!html2canvas || !JsPDF || !sheet) { showToast('PDF export is unavailable'); return; }
+
+  prepareForPdf();
+  sheet.classList.add('printdoc--capture');
+  try {
+    if (document.fonts?.ready) await document.fonts.ready;
+    const canvas = await html2canvas(sheet, {
+      backgroundColor: null,
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      width: sheet.offsetWidth,
+      height: sheet.offsetHeight,
+      windowWidth: sheet.offsetWidth,
+      windowHeight: sheet.offsetHeight,
+    });
+    const pdf = new JsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    pdf.addImage(canvas.toDataURL('image/jpeg', 0.94), 'JPEG', 0, 0, 210, 297);
+    const name = 'Cadence — ' + labelDate(currentDate, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).replace(/,/g, '') + '.pdf';
+    pdf.save(name);
+    showToast('PDF downloaded');
+  } catch (err) {
+    console.error(err);
+    showToast('Could not build the PDF');
+  } finally {
+    sheet.classList.remove('printdoc--capture');
+    endPdf();
+  }
 }
 
 
@@ -419,6 +450,7 @@ function renderWeekStrip() {
   for (let i = -3; i <= 3; i += 1) {
     const key = shiftKey(currentDate, i);
     const pp = getPlan(state, key);
+    const s = planSummary(pp);
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'weekday';
@@ -426,7 +458,8 @@ function renderWeekStrip() {
     btn.dataset.has = pp.blocks.length ? 'true' : 'false';
     btn.dataset.today = key === today ? 'true' : 'false';
     btn.title = labelDate(key, { weekday: 'long', day: 'numeric', month: 'long' });
-    btn.innerHTML = `<span class="weekday__name">${labelDate(key, { weekday: 'short' })}</span><span class="weekday__num">${key.slice(8)}</span><span class="weekday__dot"></span>`;
+    const fmt = (m) => (m >= 60 ? Math.floor(m/60)+'h'+(m%60? m%60+'m':'') : m? m+'m':'—');
+    btn.innerHTML = `<span class="weekday__name">${labelDate(key, { weekday: 'short' })}</span><span class="weekday__num">${key.slice(8)}</span><span class="weekday__meta">S ${fmt(s.studyMin)} · R ${fmt(s.restMin)} · F ${fmt(s.freeMin)}</span><span class="weekday__dot"></span>`;
     btn.addEventListener('click', () => goToDate(key));
     strip.appendChild(btn);
   }
@@ -583,7 +616,19 @@ function renderPicker() {
   const map = activities();
   const active = brushActivity();
 
-  for (const a of map.values()) {
+  // Always show the built-in palette first so the picker isn't empty after a
+  // fresh profile or a broken import.
+  for (const a of ACTIVITIES) {
+    if (map.has(a.key)) continue;
+    // renderPicker will add from map below, but just in case
+  }
+
+  const list = [];
+  const seen = new Set();
+  for (const a of map.values()) { if (!seen.has(a.key)) { seen.add(a.key); list.push(a); } }
+  for (const a of ACTIVITIES) { if (!seen.has(a.key)) { seen.add(a.key); list.push(a); } }
+
+  for (const a of list) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'pick';
@@ -1126,14 +1171,13 @@ function bindEvents() {
   el.planDownloadPdf?.addEventListener('click', () => { downloadPdf(); });
   el.printGo?.addEventListener('click', () => {
     if (el.printDialog?.dataset.pdf === '1') {
+      el.printDialog.dataset.pdfGo = '1';
       el.printDialog.close();
       return;
     }
     el.printDialog?.close();
     printPlan();
   });
-
-  el.printDialog?.addEventListener('change', (e) => {
 
   el.printDialog?.addEventListener('change', (e) => {
     const input = e.target;
@@ -1187,8 +1231,69 @@ function bindEvents() {
 
 /* ── import, copy, hand over, export ──────────────────────── */
 
+async function importCadenceJson(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        if (!parsed || typeof parsed !== 'object') throw new Error('bad');
+        if (Array.isArray(parsed.sessions)) {
+          state.settings = sanitizeSettings(parsed.settings);
+          state.sessions = sanitizeSessions(parsed.sessions);
+          state.counters = {
+            focus: Number(parsed.counters?.focus) || 0,
+            break: Number(parsed.counters?.break) || 0,
+          };
+          state.plans = sanitizePlans(parsed.plans);
+          state.activities = sanitizeActivities(parsed.activities);
+          if (Array.isArray(parsed.saved)) state.saved = parsed.saved;
+          saveNow(state);
+          showToast('Cadence data imported');
+          resolve({ type: 'store' });
+          return;
+        }
+        if (parsed.plans && typeof parsed.plans === 'object') {
+          state.plans = sanitizePlans(parsed.plans);
+          if (Array.isArray(parsed.activities)) state.activities = sanitizeActivities(parsed.activities);
+          saveNow(state);
+          showToast('Plans imported');
+          resolve({ type: 'plans' });
+          return;
+        }
+        if (parsed.blocks || parsed.date) {
+          const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : currentDate;
+          const plan = sanitizePlan(parsed, date);
+          if (plan.blocks.length || plan.tasks.length) {
+            setPlan(state, date, plan);
+            currentDate = date;
+            current = plan;
+            selectedId = '';
+            render();
+            showToast(`Imported plan for ${date}`);
+            resolve({ type: 'plan' });
+            return;
+          }
+        }
+        throw new Error('bad');
+      } catch (e) {
+        reject(e);
+      }
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+  });
+}
+
 async function runImport(file) {
   try {
+    if (file.type === 'application/json' || file.name.toLowerCase().endsWith('.json')) {
+      await importCadenceJson(file);
+      state = load();
+      current = getPlan(state, currentDate);
+      render();
+      return;
+    }
     const result = await importTimetable(state, file);
     state = load();
     currentDate = result.date;
@@ -1197,6 +1302,10 @@ async function runImport(file) {
     render();
     showToast(`Imported ${result.blocks} blocks · ${result.label}`);
   } catch (err) {
+    if (file.type === 'application/json' || file.name.toLowerCase().endsWith('.json')) {
+      showToast('That JSON file could not be read');
+      return;
+    }
     showToast(importErrorMessage(err));
   }
 }
