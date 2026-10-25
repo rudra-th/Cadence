@@ -35,7 +35,7 @@ export const ACTIVITIES = [
   { key: 'self_study', label: 'Self study', kind: 'study' },
   { key: 'revision',   label: 'Revision',   kind: 'study' },
   { key: 'test',       label: 'Test',       kind: 'study' },
-  { key: 'breaks',     label: 'Breaks',     kind: 'rest' },
+  { key: 'breaks',     label: 'Break',      kind: 'rest' },
   { key: 'misc',       label: 'Misc',       kind: 'life' },
 ];
 
@@ -285,12 +285,15 @@ function sanitizeBlock(raw) {
   if (startMin < 0 || endMin > DAY_MIN || endMin <= startMin) return null;
   const key = typeof raw.key === 'string' && raw.key ? raw.key.slice(0, 60) : null;
   if (!key) return null;
+  const rawLabel = typeof raw.label === 'string' && raw.label.trim()
+    ? raw.label.trim().slice(0, 40)
+    : key;
   return {
     id: typeof raw.id === 'string' && raw.id ? raw.id : uid('b'),
     key,
-    label: typeof raw.label === 'string' && raw.label.trim()
-      ? raw.label.trim().slice(0, 40)
-      : key,
+    // Built-in break blocks used to read "Breaks"; keep saved plans in step
+    // with the palette, which now says "Break".
+    label: key === 'breaks' && rawLabel.toLowerCase() === 'breaks' ? 'Break' : rawLabel,
     kind: raw.kind === 'study' || raw.kind === 'rest' || raw.kind === 'life' ? raw.kind : 'study',
     startMin,
     endMin,

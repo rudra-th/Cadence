@@ -23,6 +23,32 @@ function esc(value) {
   return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ESCAPES[ch]);
 }
 
+/** Encode a string as base64 — PDF-safe (plain ASCII), so it survives byte extraction. */
+function toBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  const CHUNK = 8192;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+/** The machine-readable plan data, tagged so the importer can find it again. */
+function planPayload(plan, date) {
+  try {
+    return 'CADENCE_V1:' + toBase64(JSON.stringify({
+      type: 'cadence-plan',
+      v: 1,
+      date,
+      plan,
+      exportedAt: Date.now(),
+    }));
+  } catch {
+    return '';
+  }
+}
+
 /** 90 → '1h 30m' */
 function dur(minutes) {
   return humanDuration(Math.max(0, minutes) * 60000);
@@ -269,6 +295,7 @@ export function buildPlanPrint({
 
   if (zen) {
     return `
+      <div class="pdoc-cart" aria-hidden="true">${planPayload(plan, date)}</div>
       ${head}
       ${strip(blocks, theme, colour)}
 
@@ -278,6 +305,7 @@ export function buildPlanPrint({
   }
 
   return `
+    <div class="pdoc-cart" aria-hidden="true">${planPayload(plan, date)}</div>
     ${head}
 
     ${stats(sum, tasks.length, tasks.filter(t => t.done).length)}

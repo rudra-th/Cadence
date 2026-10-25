@@ -109,6 +109,146 @@ function showToast(msg) {
   showToast.t = setTimeout(() => { el.toast.hidden = true; }, 1800);
 }
 
+/** Encode a string as base64 — PDF-safe (plain ASCII), so it survives extraction. */
+function toBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  const CHUNK = 8192;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+/** Decode base64 back to the original string. */
+function fromBase64(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+}
+
+/** Read bytes as a printable-ASCII string — the layer the PDF bytes expose. */
+function pdfLatin(bytes) {
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 1) {
+    const b = bytes[i];
+    if (b >= 32 && b < 127) text += String.fromCharCode(b);
+    else if (b === 9 || b === 10 || b === 13) text += '\n';
+  }
+  return text;
+}
+
+/** Find an ASCII byte sequence in a byte array. */
+function findBytes(bytes, seq, from = 0) {
+  outer: for (let i = Math.max(0, from); i <= bytes.length - seq.length; i += 1) {
+    for (let j = 0; j < seq.length; j += 1) {
+      if (bytes[i + j] !== seq[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+const STREAM = new TextEncoder().encode('stream');
+const ENDSTREAM = new TextEncoder().encode('endstream');
+
+/**
+ * Decompress the FlateDecode streams inside a PDF.
+ *
+ * Browsers save PDFs with compressed content streams, so the JSON parked in a
+ * printed sheet is invisible to a plain byte scan. Inflating every stream
+ * gives the importer the same readable layer the Download PDF already has.
+ *
+ * Markers are located on the raw bytes — collapsing to text first would shift
+ * every offset, because compressed data is full of non-ASCII bytes.
+ */
+async function inflatedPdfTexts(bytes) {
+  const out = [];
+  if (!bytes || bytes.length < 64) return out;
+  const MAX = 12e6;
+  let idx = 0;
+  for (;;) {
+    const s = findBytes(bytes, STREAM, idx);
+    if (s < 0) break;
+    let dataStart = s + STREAM.length;
+    while (dataStart < bytes.length && (bytes[dataStart] === 13 || bytes[dataStart] === 10)) dataStart += 1;
+    const e = findBytes(bytes, ENDSTREAM, dataStart);
+    if (e < 0) break;
+    idx = e + ENDSTREAM.length;
+    const len = e - dataStart;
+    if (len <= 0 || len > MAX) continue;
+    const slice = bytes.subarray(dataStart, e);
+    if (typeof DecompressionStream !== 'function') break;
+    for (const enc of ['deflate', 'deflate-raw']) {
+      try {
+        const ds = new DecompressionStream(enc);
+        const w = ds.writable.getWriter();
+        const writing = w.write(slice).catch(() => {});
+        w.close().catch(() => {});
+        await writing;
+        const chunks = [];
+        for await (const c of ds.readable) chunks.push(c);
+        const buf = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+        let at = 0;
+        for (const c of chunks) { buf.set(c, at); at += c.length; }
+        out.push(pdfLatin(buf));
+        break;
+      } catch { /* not this encoding — try the next */ }
+    }
+  }
+  return out;
+}
+
+/**
+ * Pull a Cadence plan payload out of one text layer.
+ *
+ * Three shapes are accepted: the tagged base64 block (current), the tagged
+ * raw JSON (older exports), and a bare cadence-plan object (oldest).
+ */
+function planPayloadFromText(text) {
+  // 1) tagged base64 — the current format
+  let m = text.match(/CADENCE_V1:([A-Za-z0-9+/=]+)/);
+  if (m) {
+    try {
+      const parsed = JSON.parse(fromBase64(m[1]));
+      if (parsed.plan) return parsed;
+    } catch { /* fall through */ }
+  }
+  // 2) tagged raw JSON — older "Download PDF" exports
+  let idx = text.indexOf('CADENCE_PLAN_DATA:');
+  if (idx >= 0) idx = text.indexOf('{', idx);
+  if (idx < 0) idx = text.indexOf('{"type":"cadence-plan"');
+  if (idx < 0) idx = text.indexOf('cadence-plan') > 0 ? text.lastIndexOf('{', text.indexOf('cadence-plan')) : -1;
+  if (idx >= 0) {
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (let i = idx; i < text.length && i < idx + 200000; i += 1) {
+      const c = text[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === '\\') esc = true;
+        else if (c === '"') inStr = false;
+        continue;
+      }
+      if (c === '"') inStr = true;
+      else if (c === '{') depth += 1;
+      else if (c === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            const parsed = JSON.parse(text.slice(idx, i + 1));
+            if (parsed.plan || parsed.blocks) return parsed;
+          } catch { /* keep scanning */ }
+          break;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function escapeHtml(text) {
   return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -432,12 +572,13 @@ async function exportPdf() {
     const pdf = new JsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
     pdf.addImage(canvas.toDataURL('image/jpeg', 0.94), 'JPEG', 0, 0, 210, 297);
     try {
-      const data = JSON.stringify({ type: 'cadence-plan', date: currentDate, plan: current, exportedAt: Date.now() });
-      pdf.setFontSize(1);
-      // Put in multiple locations to ensure it's extractable
-      pdf.text('CADENCE_PLAN_DATA:' + data, 5, 5);
-      pdf.text(data, 5, 6);
-      pdf.text(data, -1000, -1000);
+      // The plan travels inside the PDF as tagged base64 text, parked far off
+      // the page: invisible in the viewer, but easy for the importer to find.
+      const payload = toBase64(JSON.stringify({
+        type: 'cadence-plan', v: 1, date: currentDate, plan: current, exportedAt: Date.now(),
+      }));
+      pdf.setFontSize(0.1);
+      pdf.text('CADENCE_V1:' + payload, -1000, -1000);
     } catch {}
     const name = 'Cadence — ' + labelDate(currentDate, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).replace(/,/g, '') + '.pdf';
     pdf.save(name);
@@ -632,6 +773,11 @@ function renderInspector() {
   }
 }
 
+/* The palette opens with the three things most days are made of, so the
+   first chips on a phone are the ones people reach for; the rest scrolls
+   after them. Erase sits right behind them, within reach without a swipe. */
+const FIRST_UP = ['sleep', 'self_study', 'breaks'];
+
 function renderPicker() {
   const picker = el.planPicker;
   if (!picker) return;
@@ -639,19 +785,19 @@ function renderPicker() {
   const map = activities();
   const active = brushActivity();
 
-  // Always show the built-in palette first so the picker isn't empty after a
-  // fresh profile or a broken import.
-  for (const a of ACTIVITIES) {
-    if (map.has(a.key)) continue;
-    // renderPicker will add from map below, but just in case
-  }
-
   const list = [];
   const seen = new Set();
   for (const a of map.values()) { if (!seen.has(a.key)) { seen.add(a.key); list.push(a); } }
   for (const a of ACTIVITIES) { if (!seen.has(a.key)) { seen.add(a.key); list.push(a); } }
 
-  for (const a of list) {
+  const first = [];
+  for (const key of FIRST_UP) {
+    const a = list.find(x => x.key === key);
+    if (a) first.push(a);
+  }
+  const rest = list.filter(a => !FIRST_UP.includes(a.key));
+
+  const activityButton = (a) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'pick';
@@ -660,8 +806,10 @@ function renderPicker() {
     btn.setAttribute('aria-pressed', String(!eraseMode && a.key === active?.key));
     btn.innerHTML = `<span class="pick__dot"></span><span class="pick__label">${escapeHtml(a.label)}</span>`;
     btn.addEventListener('click', () => pickActivity(a));
-    picker.appendChild(btn);
-  }
+    return btn;
+  };
+
+  for (const a of first) picker.appendChild(activityButton(a));
 
   const erase = document.createElement('button');
   erase.type = 'button';
@@ -675,6 +823,8 @@ function renderPicker() {
     updateGridHint();
   });
   picker.appendChild(erase);
+
+  for (const a of rest) picker.appendChild(activityButton(a));
 }
 
 /**
@@ -1350,93 +1500,41 @@ async function importCadenceJson(file) {
 async function tryImportCadencePdf(buffer) {
   try {
     const bytes = new Uint8Array(buffer);
-    let text = '';
-    for (let i = 0; i < bytes.length; i++) {
-      const b = bytes[i];
-      if (b === 0) continue;
-      if (b >= 32 && b < 127) text += String.fromCharCode(b);
-      else if (b === 9 || b === 10 || b === 13) text += '\n';
-      else text += ' ';
-    }
-    // Also try to decode as latin-1/utf-8 more aggressively
+    const sources = [pdfLatin(bytes)];
     try {
-      const decoder = new TextDecoder('utf-8', { fatal: false });
-      const decoded = decoder.decode(bytes);
-      if (decoded.length > text.length) text = decoded;
-    } catch {}
-    // Look for tagged data first
-    let tagged = text.match(/CADENCE_PLAN_DATA:\s*(\{[\s\S]*?\})/);
-    if (tagged) {
-      try {
-        const parsed = JSON.parse(tagged[1]);
-        if (parsed.type === 'cadence-plan' && parsed.plan) {
-          const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : currentDate;
-          const plan = sanitizePlan(parsed.plan, date);
-          if (plan.blocks.length || plan.tasks.length) {
-            setPlan(state, date, plan);
-            currentDate = date;
-            current = plan;
-            selectedId = '';
-            render();
-            showToast(`Imported Cadence plan for ${date}`);
-            return true;
-          }
-        }
-      } catch {}
-    }
-    const idx = text.indexOf('cadence-plan');
-    if (idx >= 0) {
-      const start = text.lastIndexOf('{', idx);
-      if (start >= 0) {
-        let braceCount = 0;
-        for (let i = start; i < text.length && i < start + 100000; i++) {
-          if (text[i] === '{') braceCount++;
-          else if (text[i] === '}') {
-            braceCount--;
-            if (braceCount === 0) {
-              try {
-                const candidate = text.slice(start, i + 1);
-                const parsed = JSON.parse(candidate);
-                if ((parsed.type === 'cadence-plan' && parsed.plan) || parsed.plan) {
-                  const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : currentDate;
-                  const planData = parsed.plan || parsed;
-                  const plan = sanitizePlan(planData, date);
-                  if (plan.blocks.length || plan.tasks.length) {
-                    setPlan(state, date, plan);
-                    currentDate = date;
-                    current = plan;
-                    selectedId = '';
-                    render();
-                    showToast(`Imported Cadence plan for ${date}`);
-                    return true;
-                  }
-                }
-              } catch (e) {
-                // continue searching
-              }
-              break;
-            }
-          }
-        }
+      sources.push(...(await inflatedPdfTexts(bytes)));
+    } catch { /* decompression unavailable — the raw layer still counts */ }
+
+    for (const text of sources) {
+      const parsed = planPayloadFromText(text);
+      if (!parsed) continue;
+      const planData = parsed.plan || parsed;
+      const date = typeof parsed.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date)
+        ? parsed.date
+        : (typeof planData.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(planData.date) ? planData.date : currentDate);
+      const plan = sanitizePlan(planData, date);
+      if (plan.blocks.length || plan.tasks.length) {
+        setPlan(state, date, plan);
+        currentDate = date;
+        current = plan;
+        selectedId = '';
+        render();
+        showToast(`Imported Cadence plan for ${date}`);
+        return true;
       }
     }
-    if (m) {
-      try {
-        const parsed = JSON.parse(m[0]);
-        if (parsed.plan) {
-          const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : currentDate;
-          const plan = sanitizePlan(parsed.plan, date);
-          if (plan.blocks.length || plan.tasks.length) {
-            setPlan(state, date, plan);
-            currentDate = date;
-            current = plan;
-            selectedId = '';
-            render();
-            showToast(`Imported Cadence plan for ${date}`);
-            return true;
-          }
-        }
-      } catch {}
+  } catch {}
+  return false;
+}
+
+/** Does this PDF carry Cadence data at all (even if unreadable)? */
+async function pdfIsCadence(buffer) {
+  try {
+    const bytes = new Uint8Array(buffer);
+    const raw = pdfLatin(bytes);
+    if (raw.includes('cadence-plan') || raw.includes('CADENCE_V1')) return true;
+    for (const text of await inflatedPdfTexts(bytes)) {
+      if (text.includes('cadence-plan') || text.includes('CADENCE_V1')) return true;
     }
   } catch {}
   return false;
@@ -1469,7 +1567,12 @@ async function runImport(file) {
         showToast(`Imported ${result.blocks} blocks · ${result.label}`);
         return;
       } catch (err) {
-        showToast(importErrorMessage(err));
+        // A PDF that carries Cadence data but failed to decode needs a
+        // different message than a foreign timetable that simply has none.
+        const cadence = await pdfIsCadence(buffer);
+        showToast(cadence
+          ? 'This Cadence PDF could not be read — try exporting it again.'
+          : importErrorMessage(err));
         return;
       }
     }
