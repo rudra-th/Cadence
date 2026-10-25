@@ -1521,19 +1521,27 @@ body.is-ready .fade-up { opacity: 1; transform: none; }
   color: var(--faint);
 }
 .footer__bottom span { display: inline-flex; align-items: center; gap: 8px; }
+.footer__meta { display: flex; align-items: center; gap: 20px 28px; flex-wrap: wrap; }
 
-/* "Made by Rudra" — quiet GitHub credit, blends into the footer row */
+/* "Made by Rudra" — GitHub credit, sits at the end of the bottom row */
 .madeby {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  color: var(--faint);
+  gap: 8px;
+  padding: 5px 11px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   text-decoration: none;
-  transition: color 0.3s ease;
+  transition: color 0.3s ease, border-color 0.3s ease, background-color 0.3s ease;
 }
 .madeby svg { width: 10px; height: 10px; fill: currentColor; flex: none; }
-.madeby:hover { color: var(--paper); }
-.madeby:focus-visible { outline: 1px solid var(--paper); outline-offset: 3px; }
+.madeby:hover { color: var(--paper); border-color: var(--faint); background: rgba(255, 255, 255, 0.04); }
+.madeby:focus-visible { outline: 1px solid var(--paper); outline-offset: 2px; }
 .footer__bottom i {
   width: 4px;
   height: 4px;
@@ -1701,6 +1709,7 @@ body.is-ready .fade-up { opacity: 1; transform: none; }
   .footer__top > div:first-child { grid-column: span 1; }
   .footer__tagline { font-size: clamp(1.1rem, 5vw, 1.5rem); }
   .footer__bottom { flex-direction: column; align-items: flex-start; gap: 12px; font-size: 7.5px; }
+  .madeby { font-size: 8px; padding: 4px 10px; }
 }
 
 /* ── Reduced motion ─────────────────────────────────────────────── */
