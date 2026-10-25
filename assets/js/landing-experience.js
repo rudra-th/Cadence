@@ -627,51 +627,54 @@
     const ctx = FILM.ctx;
     const w = FILM.w;
     const h = FILM.h;
-    const local = smooth(0.5, 0.7, p);
+    const local = smooth(0.5, 0.68, p);
+    const fade = smooth(0.53, 0.63, p);
+    const ease = 0.96 + local * 0.04;
+    const breath = reduceMotion ? 1 : 0.55 + Math.sin(time * 0.0018) * 0.45;
 
-    const cw = Math.min(w * 0.74, 760);
-    const ch = Math.min(h * 0.52, 380);
-    const cx = w / 2;
-    const cy = h * 0.5;
-    const left = cx - cw / 2;
-    const top = cy - ch / 2;
-    const scale = 0.94 + local * 0.06;
+    /* the counter itself is HTML (.film__now), centered near 47% latitude —
+       the canvas gives it a quiet room, exactly around it */
+    const zx = w / 2;
+    const zy = h * 0.47;
+    const halfW = Math.min(w * 0.26, 260);
+    const halfH = Math.min(h * 0.21, 160);
+    const cardW = halfW * 2;
+    const cardH = halfH * 2;
+    const left = zx - halfW;
+    const top = zy - halfH;
+    const pad = w < 720 ? 14 : 20;
 
     ctx.save();
     ctx.globalAlpha = alpha;
 
-    /* dimmed day score behind the glass */
-    ctx.save();
-    ctx.globalAlpha = alpha * (0.18 + local * 0.08);
-    drawTimeline(0.5, 1);
-    ctx.restore();
+    /* the day score dims back down behind the act — really dimmed this
+       time: drawTimeline paints with its own alpha, so pass it through */
+    drawTimeline(0.5, 0.12 + local * 0.08);
 
-    ctx.translate(cx, cy);
-    ctx.scale(scale, scale);
-    ctx.translate(-cx, -cy);
+    ctx.translate(zx, zy);
+    ctx.scale(ease, ease);
+    ctx.translate(-zx, -zy);
 
-    /* glass card */
-    ctx.fillStyle = 'rgba(0,0,0,0.82)';
-    roundRect(ctx, left, top, cw, ch, 2);
+    /* dark glass room so the counter reads over the day score */
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.74)';
+    roundRect(ctx, left, top, cardW, cardH, 2);
     ctx.fill();
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.strokeStyle = `rgba(255,255,255,${0.18 * fade})`;
     ctx.lineWidth = 1;
-    roundRect(ctx, left, top, cw, ch, 2);
+    roundRect(ctx, left, top, cardW, cardH, 2);
     ctx.stroke();
 
-    /* corner framing marks */
-    const b = 16;
-    const o = 12;
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    /* corner framing marks, just outside the glass */
+    const o = 10;
+    const b = 15;
+    ctx.strokeStyle = `rgba(255,255,255,${0.8 * fade})`;
     ctx.lineWidth = 1.4;
-    const corners = [
+    [
       [left - o, top - o, b, 0, 0, b],
-      [left + cw + o, top - o, -b, 0, 0, b],
-      [left - o, top + ch + o, b, 0, 0, -b],
-      [left + cw + o, top + ch + o, -b, 0, 0, -b],
-    ];
-    corners.forEach(([x, y, ax, ay, bx, by]) => {
+      [left + cardW + o, top - o, -b, 0, 0, b],
+      [left - o, top + cardH + o, b, 0, 0, -b],
+      [left + cardW + o, top + cardH + o, -b, 0, 0, -b],
+    ].forEach(([x, y, ax, ay, bx, by]) => {
       ctx.beginPath();
       ctx.moveTo(x, y);
       ctx.lineTo(x + ax, y + ay);
@@ -680,83 +683,39 @@
       ctx.stroke();
     });
 
-    /* meta line */
-    const pad = 34;
+    /* header labels, tucked inside the top edge of the card */
+    const labelY = top + pad + 6;
     ctx.font = '400 8.5px "JetBrains Mono", monospace';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.fillStyle = 'rgba(255,255,255,0.45)';
-    ctx.fillText('BLOCK 04', left + pad, top + pad);
+    ctx.fillStyle = `rgba(255,255,255,${0.42 * fade})`;
+    ctx.fillText('NOW BLOCK', left + pad, labelY);
     ctx.textAlign = 'right';
-    ctx.fillText('07 TOTAL', left + cw - pad, top + pad);
+    ctx.fillText('04 / 07', left + cardW - pad, labelY);
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-    ctx.beginPath();
-    ctx.moveTo(left + pad, top + pad + 20);
-    ctx.lineTo(left + cw - pad, top + pad + 20);
-    ctx.stroke();
+    /* the live ring, bottom-right inside the room */
+    if (w >= 720) {
+      const ringR = Math.min(cardH * 0.14, 34);
+      const ringX = left + cardW - pad - ringR;
+      const ringY = top + cardH - pad - ringR;
+      const sweep = 0.42 + local * 0.45;
 
-    /* timer ring, bottom right of the card */
-    const ringR = Math.min(ch * 0.19, 62);
-    const ringX = left + cw - pad - ringR;
-    const ringY = top + ch - pad - ringR;
-    const sweep = 0.42 + local * 0.45;
-
-    ctx.beginPath();
-    ctx.arc(ringX, ringY, ringR, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(ringX, ringY, ringR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * sweep);
-    ctx.strokeStyle = 'rgba(255,255,255,0.92)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(ringX, ringY, 3.2, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.fill();
-
-    ctx.font = '400 7.5px "JetBrains Mono", monospace';
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.textAlign = 'center';
-    ctx.fillText('FOCUS', ringX, ringY + ringR + 20);
-
-    /* progress rail */
-    const railW = cw - pad * 2 - ringR * 2 - 24;
-    const railY = top + ch - pad - 22;
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-    ctx.beginPath();
-    ctx.moveTo(left + pad, railY);
-    ctx.lineTo(left + pad + railW, railY);
-    ctx.stroke();
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(left + pad, railY);
-    ctx.lineTo(left + pad + railW * sweep, railY);
-    ctx.stroke();
-
-    /* little ticks under the rail */
-    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 28; i += 1) {
-      const tx = left + pad + (railW / 28) * i;
+      ctx.strokeStyle = `rgba(255,255,255,${0.14 * fade})`;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(tx, railY + 9);
-      ctx.lineTo(tx, railY + (i % 7 === 0 ? 17 : 13));
+      ctx.arc(ringX, ringY, ringR, 0, Math.PI * 2);
       ctx.stroke();
-    }
 
-    /* breathing dot in the card's quiet space */
-    const breath = reduceMotion ? 1 : 0.55 + Math.sin(time * 0.0018) * 0.45;
-    ctx.beginPath();
-    ctx.arc(left + pad + 5, top + ch - pad - 70, 3.5, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(255,255,255,${0.35 + breath * 0.5})`;
-    ctx.fill();
+      ctx.strokeStyle = `rgba(255,255,255,${0.85 * fade})`;
+      ctx.beginPath();
+      ctx.arc(ringX, ringY, ringR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * sweep);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(ringX, ringY, 3 * (0.7 + breath * 0.5), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${(0.4 + breath * 0.5) * fade})`;
+      ctx.fill();
+    }
 
     ctx.restore();
   }
