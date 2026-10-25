@@ -2382,6 +2382,14 @@ body.planpage .grid__block[data-kind="life"] .grid__blockdur {
   height: 28px;
   background: var(--line);
 }
+/* Erase is a tool, not an activity — it sits with Add, past the divider. */
+.toolbar__tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.toolbar__erase { display: flex; align-items: center; }
 .plan__toolbar .linkbtn { margin-top: 0; }
 
 .picker { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -3338,7 +3346,7 @@ body.landing { background: var(--bg); }
     border-radius: 10px;
   }
   .toolbar__section { flex: 1 1 auto; min-width: 0; }
-  .toolbar__divider { display: none; }
+  .toolbar__divider { display: block; height: 20px; }
   .picker {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -3358,6 +3366,15 @@ body.landing { background: var(--bg); }
     border-radius: 8px;
   }
   .pick__dot { width: 7px; height: 7px; }
+  /* The tool pair: erase and add, sized like buttons rather than chips. */
+  .toolbar__tools { gap: 3px; }
+  .toolbar__erase .pick {
+    height: 30px;
+    padding: 0 9px 0 7px;
+    gap: 5px;
+    font-size: 10.5px;
+    border-radius: 8px;
+  }
   #planAddActivity {
     flex: none;
     height: 30px;
@@ -3365,8 +3382,8 @@ body.landing { background: var(--bg); }
     gap: 3px;
     font-size: 10.5px;
     border: 0;
-    border-radius: 0 8px 8px 0;
-    box-shadow: inset 1px 0 0 var(--line);
+    border-radius: 8px;
+    box-shadow: none;
     color: var(--text-dim);
   }
   /* On a phone the label is just "Add" — the plus and the place in the
@@ -3959,6 +3976,26 @@ body.landing { background: var(--bg); }
   .printdesk { grid-template-columns: 1fr; gap: 18px; }
   .printpreview { display: none; }
 }
+
+/* ── Made by Rudra — small GitHub credit ─────────────────── */
+.madeby {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  margin: 2px auto 30px;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-faint);
+  font-size: 12px;
+  letter-spacing: .02em;
+  text-decoration: none;
+  transition: color .18s ease, border-color .18s ease, background-color .18s ease;
+}
+.madeby svg { width: 14px; height: 14px; fill: currentColor; flex: none; }
+.madeby:hover { color: var(--text); border-color: var(--line-3); background: var(--surface-2); }
+.madeby:focus-visible { outline: 2px solid var(--line-3); outline-offset: 2px; }
 
 /* ── printing ────────────────────────────────────────────── */
 @media print {

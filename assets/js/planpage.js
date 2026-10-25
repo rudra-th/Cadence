@@ -775,7 +775,7 @@ function renderInspector() {
 
 /* The palette opens with the three things most days are made of, so the
    first chips on a phone are the ones people reach for; the rest scrolls
-   after them. Erase sits right behind them, within reach without a swipe. */
+   after them. Erase is a tool, not an activity, so it lives with Add. */
 const FIRST_UP = ['sleep', 'self_study', 'breaks'];
 
 function renderPicker() {
@@ -810,7 +810,12 @@ function renderPicker() {
   };
 
   for (const a of first) picker.appendChild(activityButton(a));
+  for (const a of rest) picker.appendChild(activityButton(a));
 
+  // Erase sits beside Add so it never reads as one more thing to paint with.
+  const slot = document.getElementById('planEraseSlot');
+  if (!slot) return;
+  slot.innerHTML = '';
   const erase = document.createElement('button');
   erase.type = 'button';
   erase.className = 'pick pick--erase';
@@ -822,9 +827,7 @@ function renderPicker() {
     renderPicker();
     updateGridHint();
   });
-  picker.appendChild(erase);
-
-  for (const a of rest) picker.appendChild(activityButton(a));
+  slot.appendChild(erase);
 }
 
 /**

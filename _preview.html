@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: #1a1a1a; font: 11px monospace; color: #777; }
+  .row { display: flex; gap: 18px; padding: 14px; align-items: flex-start; }
+  .frame { background: #000; border-radius: 20px; padding: 5px; box-shadow: 0 16px 50px #000; }
+  iframe { width: 390px; height: 844px; border: 0; border-radius: 16px; display: block; background: #000; }
+  .cap { text-align: center; padding: 5px 0 0; }
+  #frames { visibility: hidden; }
+</style>
+</head>
+<body>
+<div class="row" id="frames">
+  <div>
+    <div class="frame"><iframe id="fplan" src="./plan.html?p=1"></iframe></div>
+    <div class="cap">plan · 390×844</div>
+  </div>
+  <div>
+    <div class="frame"><iframe id="fclock" src="./clock.html?p=1"></iframe></div>
+    <div class="cap">clock · 390×844</div>
+  </div>
+</div>
+<script>
+  (async () => {
+    try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); } catch (e) {}
+    try { for (const k of await caches.keys()) await caches.delete(k); } catch (e) {}
+    document.getElementById('frames').style.visibility = 'visible';
+  })();
+</script>
+</body>
+</html>
