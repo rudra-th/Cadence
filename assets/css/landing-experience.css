@@ -1522,21 +1522,18 @@ body.is-ready .fade-up { opacity: 1; transform: none; }
 }
 .footer__bottom span { display: inline-flex; align-items: center; gap: 8px; }
 
-/* "Made by Rudra" — small GitHub credit */
+/* "Made by Rudra" — quiet GitHub credit, blends into the footer row */
 .madeby {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
-  border: 1px solid var(--line-soft);
-  border-radius: 999px;
+  gap: 7px;
   color: var(--faint);
   text-decoration: none;
-  transition: color 0.3s ease, border-color 0.3s ease;
+  transition: color 0.3s ease;
 }
-.madeby svg { width: 11px; height: 11px; fill: currentColor; flex: none; }
-.madeby:hover { color: var(--paper); border-color: var(--faint); }
-.madeby:focus-visible { outline: 1px solid var(--paper); outline-offset: 2px; }
+.madeby svg { width: 10px; height: 10px; fill: currentColor; flex: none; }
+.madeby:hover { color: var(--paper); }
+.madeby:focus-visible { outline: 1px solid var(--paper); outline-offset: 3px; }
 .footer__bottom i {
   width: 4px;
   height: 4px;

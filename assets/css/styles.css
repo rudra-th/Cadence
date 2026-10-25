@@ -3982,19 +3982,19 @@ body.landing { background: var(--bg); }
   display: flex;
   width: fit-content;
   align-items: center;
-  gap: 8px;
-  margin: 2px auto 30px;
-  padding: 7px 14px;
+  gap: 6px;
+  margin: 0 auto 22px;
+  padding: 4px 11px;
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: 10.5px;
   letter-spacing: .02em;
   text-decoration: none;
   transition: color .18s ease, border-color .18s ease, background-color .18s ease;
 }
-.madeby svg { width: 14px; height: 14px; fill: currentColor; flex: none; }
-.madeby:hover { color: var(--text); border-color: var(--line-3); background: var(--surface-2); }
+.madeby svg { width: 11px; height: 11px; fill: currentColor; flex: none; }
+.madeby:hover { color: var(--text); border-color: var(--line-2); background: var(--surface-2); }
 .madeby:focus-visible { outline: 2px solid var(--line-3); outline-offset: 2px; }
 
 /* ── printing ────────────────────────────────────────────── */
