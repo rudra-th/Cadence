@@ -1996,6 +1996,160 @@ body.planpage {
   color: var(--text);
 }
 
+/* ═══════════════════════════════════════════════════════════
+   Cadence — planner layout
+   Two columns on a wide screen: the day on the left, the
+   week's numbers and the task list on the right.
+   ═══════════════════════════════════════════════════════════ */
+
+.plan__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 18px;
+  align-items: start;
+}
+.plan__main-col {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.plan__side-col {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  top: 14px;
+}
+
+/* The three hero actions: one clear primary, two quiet ones. */
+.plan__primary-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: none;
+}
+.plan__primary-actions .btn { height: 40px; }
+
+#planDownloadPdf {
+  min-width: 0;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+#planDownloadPdf:hover {
+  color: var(--text);
+  background: var(--surface-3);
+  border-color: var(--line-2);
+  box-shadow: none;
+}
+
+/* The week strip fills the row; every day gets an equal cell. */
+.weekrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.weekstrip {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  gap: 4px;
+}
+.weekday {
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 6px 2px;
+  border-radius: 10px;
+  text-align: center;
+}
+.weekday__left {
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.weekday__name {
+  font-size: 8.5px;
+  letter-spacing: 0.07em;
+}
+.weekday__num {
+  font-size: 14px;
+  line-height: 1;
+}
+.weekday__dot { width: 3px; height: 3px; margin: 0 auto; }
+.weekday[data-today="true"]:not([aria-current="date"]) .weekday__name { color: var(--text-dim); }
+.weekday[aria-current="date"] { border-color: var(--line-3); }
+
+/* On a wide screen the strip is a date ribbon, not seven empty boxes: keep
+   the row at a comfortable width so the numbers stay close together. */
+@media (min-width: 621px) {
+  .weekrow { max-width: 812px; }
+  .weekday__name { font-size: 9.5px; }
+  .weekday__num { font-size: 15px; }
+}
+
+/* The quick actions: a soft pill rail instead of loose text. */
+.plan__quickbar { display: flex; }
+.plan__quickbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.plan__quickbar .btn {
+  height: 26px;
+  padding: 0 11px;
+  font-size: 11.5px;
+  border-radius: var(--r-pill);
+}
+.plan__quickbar .btn--ghost { border: 0; }
+.plan__quickbar .btn--danger { margin-left: 2px; }
+
+.plan__side-actions {
+  display: flex;
+  gap: 6px;
+}
+.plan__side-actions .btn {
+  flex: 1;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text-faint);
+}
+.plan__side-actions .btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--line-2);
+}
+.plan__side-actions .btn:disabled { opacity: 0.4; }
+
+/* The numbers card sits right above the tasks. */
+.plan__side-col .weekrow__stats {
+  flex-wrap: wrap;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+.plan__side-col .weekrow__stats .plan__stat {
+  flex: 1 1 30%;
+  min-width: 0;
+  padding: 9px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.plan__side-col .weekrow__stats .plan__stat:nth-child(3n) { border-right: none; }
+.plan__side-col .weekrow__stats .plan__stat:nth-last-child(-n+2) { border-bottom: none; }
+
 /* ── The day grid ────────────────────────────────────────── */
 .grid-wrapper {
   margin-top: 12px;
@@ -2544,8 +2698,12 @@ body.planpage .btn--primary:hover {
   border-color: var(--accent-line);
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
 }
-.taskform .input { flex: 1; min-width: 140px; }
-.taskform .select { width: auto; min-width: 130px; flex: none; }
+/* The task form in a narrow rail: the field takes the full width, and the
+   stage picker keeps the add button company on the second line. */
+.taskform .input { flex: 1 1 100%; min-width: 0; }
+.taskform .select-wrap { flex: 1 1 auto; min-width: 0; margin-bottom: 0; }
+.taskform .select { width: 100%; min-width: 0; }
+.taskform .btn { flex: none; min-width: 0; padding: 0 16px; }
 .tasklist { display: flex; flex-direction: column; gap: 16px; }
 .taskgroup { display: flex; flex-direction: column; }
 .taskgroup__head {
@@ -3021,104 +3179,357 @@ body.landing { background: var(--bg); }
     align-items: flex-start;
   }
   .plan__primary-actions {
-    width: 100%;
+    width: auto;
     flex-wrap: wrap;
   }
   .plan__primary-actions .btn {
-    flex: 1;
-    min-width: 120px;
-  }
-}
-@media (max-width: 760px) {
-  :root { --pad: 16px; }
-  .app { padding: 0 16px; }
-  .topbar { flex-wrap: wrap; gap: 10px; padding: 10px 0; }
-  .pagenav { order: 3; width: 100%; justify-content: center; }
-  .topbar__right { gap: 6px; }
-  .plan__main-grid { grid-template-columns: 1fr; }
-  .grid { grid-template-columns: 1fr; gap: 16px; }
-  .grid__body { gap: 6px; }
-  .grid__gutter { width: 32px; }
-  .plan__right-col {
-    grid-template-columns: 1fr;
-  }
-  .inspector {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  .plan__hero-top { flex-direction: column; align-items: flex-start; gap: 14px; }
-  .plan__date-section { flex-wrap: wrap; }
-  .weekrow { grid-template-columns: 1fr; gap: 10px; }
-  .weekrow__today, .weekrow__stats { justify-self: start; }
-  .card__head { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .inspector__acts { width: 100%; flex-wrap: wrap; }
-  .toolbar__divider { display: none; }
-  .plan__toolbar { flex-wrap: wrap; }
-  .inspector__acts {
-    width: 100%;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-  }
-
-  /* Clock page */
-  .stage { padding: calc(var(--nav-h, 64px) + 10px) 16px 40px; min-height: 100svh; }
-  .dial { width: min(38vh, 78vw, 320px); }
-  .dial__time { font-size: clamp(2.4rem, 14vw, 4.8rem); }
-  .controls { flex-wrap: wrap; gap: 10px; width: 100%; justify-content: center; }
-  .controls .btn { flex: 1; min-width: 100px; }
-  .subcontrols { flex-wrap: wrap; gap: 8px; justify-content: center; }
-  .agenda { width: min(100%, 360px); padding: 12px; }
-  .agenda__body { grid-template-columns: 1fr; }
-  .agenda__body[data-single="false"] .agenda__session { padding-right: 0; border-right: none; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
-  .viewswitch__btn { padding: 6px 12px; font-size: 12px; }
-  .pagenav__link { padding: 6px 12px; font-size: 12px; }
-}
-@media (max-width: 520px) {
-  :root { --pad: 14px; }
-  .app { padding: 0 14px; }
-  .topbar { flex-wrap: wrap; gap: 8px; padding: 8px 0; }
-  .brand__name { font-size: 11px; letter-spacing: 0.16em; }
-  .brand__mark { width: 18px; height: 18px; }
-  .topbar__right { gap: 6px; margin-left: auto; }
-  .pagenav { order: 3; width: 100%; }
-  .pagenav__link { flex: 1; text-align: center; padding: 6px 8px; font-size: 11px; }
-  .plan__datebar { gap: 8px; }
-  .plan__actions { width: 100%; flex-wrap: wrap; }
-  .plan__date-section {
-    flex-wrap: wrap;
-  }
-  .nav { padding-left: 14px; padding-right: 14px; }
-  .taskform__row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .taskform .input,
-  .taskform .select {
-    width: 100%;
+    flex: 0 0 auto;
     min-width: 0;
   }
-  .plan__title { font-size: 1.6rem; }
-  .card { padding: 14px; }
-  .quick-action-btn { padding: 10px; }
-  .weekstrip { width: 100%; overflow-x: auto; }
+}
+/* ═══════════════════════════════════════════════════════════
+   Phone layouts
+   One column, one glance. The planner puts the day first and
+   the paperwork after it; the clock starts right under the
+   header instead of floating in the middle of the screen.
+   ═══════════════════════════════════════════════════════════ */
 
-  /* Clock page */
-  .stage { padding: calc(var(--nav-h, 60px) + 8px) 14px 36px; min-height: 100svh; }
-  .dial { width: min(44vh, 88vw, 260px); }
-  .dial__time { font-size: clamp(2rem, 22vw, 3.8rem); }
-  .dial__label { font-size: 7.5px; }
-  .dial__meta { font-size: 8.5px; }
-  .controls { flex-wrap: wrap; gap: 8px; width: 100%; }
-  .controls .btn { flex: 1 1 calc(50% - 8px); padding: 9px 10px; font-size: 11.5px; }
-  .subcontrols { flex-wrap: wrap; gap: 6px; width: 100%; justify-content: center; }
-  .subcontrols .btn--ghost { padding: 6px 9px; font-size: 11px; }
-  .today { width: 100%; font-size: 10.5px; }
-  .agenda { width: 100%; padding: 10px; }
+@media (max-width: 860px) {
+  .plan__layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .plan__side-col { position: static; top: auto; }
+
+  /* Five numbers across the width, no broken seams. */
+  .plan__side-col .weekrow__stats .plan__stat {
+    flex: 1 1 0;
+    border-bottom: none;
+  }
+  .plan__side-col .weekrow__stats .plan__stat:nth-child(3n) {
+    border-right: 1px solid var(--line);
+  }
+  .plan__side-col .weekrow__stats .plan__stat:last-child { border-right: none; }
+}
+
+@media (max-width: 620px) {
+
+  /* ── the shell ─────────────────────────────────────────── */
+  body { overflow-x: clip; }
+  .app { padding: 0; }
+  .topbar {
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: max(10px, env(safe-area-inset-top)) 13px 2px;
+  }
+  .brand { gap: 7px; }
+  .brand__mark { width: 18px; height: 18px; }
+  .brand__name { font-size: 11px; letter-spacing: 0.01em; }
+  .pagenav { padding: 2px; }
+  .pagenav__link { padding: 5px 10px; font-size: 11px; }
+  .topbar__right { gap: 4px; }
+  .icon-btn { width: 32px; height: 32px; }
+  .icon-btn svg { width: 16px; height: 16px; }
+  .runtime-chip { padding: 3px 6px; font-size: 8.5px; letter-spacing: 0.05em; }
+
+  .workspace {
+    gap: 12px;
+    padding: 2px 13px max(34px, env(safe-area-inset-bottom));
+  }
+  .planpage__workspace { padding-top: 6px; }
+
+  /* ── the day header ────────────────────────────────────── */
+  .plan__hero { gap: 11px; margin-bottom: 0; }
+  .plan__hero-top { flex-direction: column; align-items: stretch; gap: 10px; }
+  .plan__date-section { flex: 1 1 auto; flex-wrap: nowrap; gap: 9px; min-width: 0; }
+  .plan__nav-group { flex: none; gap: 1px; padding: 2px; border-radius: 10px; }
+  .plan-nav-btn { width: 29px; height: 29px; border-radius: 8px; }
+  .plan-nav-btn svg { width: 15px; height: 15px; }
+  .plan__date-info { min-width: 0; }
+  .plan__title {
+    font-size: clamp(1.15rem, 5.6vw, 1.4rem);
+    line-height: 1.15;
+    letter-spacing: -0.035em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .plan__sub { margin-top: 1px; gap: 4px; font-size: 10.5px; }
+
+  /* One clear primary, two quiet secondaries. */
+  .plan__primary-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    width: 100%;
+  }
+  .plan__primary-actions .btn {
+    height: 38px;
+    min-width: 0;
+    padding: 0 8px;
+    font-size: 12px;
+    border-radius: 10px;
+  }
+  .plan__primary-actions .btn__icon { width: 14px; height: 14px; }
+  #planStart { grid-column: 1 / -1; height: 42px; font-size: 13px; }
+
+  /* ── the week ──────────────────────────────────────────── */
+  .weekrow { gap: 5px; }
+  .weekstrip { gap: 2px; }
+  .weekday { padding: 5px 1px 4px; gap: 2px; border-radius: 8px; }
+  .weekday__name { font-size: 7.5px; letter-spacing: 0.02em; }
+  .weekday__num { font-size: 12.5px; }
+  .weekday__dot { width: 3px; height: 3px; }
+  .weekrow__today {
+    height: 30px;
+    padding: 0 9px;
+    font-size: 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+
+  /* ── the quick actions ─────────────────────────────────── */
+  .plan__quickbar-inner {
+    width: 100%;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 11px;
+  }
+  .plan__quickbar .btn {
+    flex: 1 1 0;
+    height: 30px;
+    padding: 0 4px;
+    font-size: 10.5px;
+    white-space: nowrap;
+    border-radius: 9px;
+  }
+  .plan__quickbar .btn--danger { margin-left: 0; }
+
+  /* ── cards ─────────────────────────────────────────────── */
+  .card { padding: 12px; border-radius: var(--r-lg); }
+  .card__head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin-bottom: 0;
+  }
+  .card__title { font-size: 14px; }
+  .card__hint { font-size: 10.5px; }
+  .nowbar {
+    width: 100%;
+    gap: 6px;
+    padding: 6px 10px;
+    overflow: hidden;
+  }
+  .nowbar__pulse { width: 5px; height: 5px; }
+  .nowbar__label { font-size: 8.5px; letter-spacing: 0.08em; }
+  .nowbar__value {
+    font-size: 11.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .nowbar__time { margin-left: auto; font-size: 10px; white-space: nowrap; }
+
+  /* ── the brush rail ────────────────────────────────────── */
+  .plan__toolbar {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+    padding: 5px;
+    border-radius: 10px;
+  }
+  .toolbar__section { flex: 1 1 auto; min-width: 0; }
+  .toolbar__divider { display: none; }
+  .picker {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 2px;
+    padding-bottom: 1px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 16px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 16px), transparent 100%);
+  }
+  .picker::-webkit-scrollbar { display: none; }
+  .pick {
+    flex: none;
+    gap: 5px;
+    padding: 6px 9px 6px 7px;
+    font-size: 11px;
+    border-radius: 8px;
+  }
+  .pick__dot { width: 7px; height: 7px; }
+  #planAddActivity {
+    flex: none;
+    height: 30px;
+    padding: 0 10px 0 12px;
+    gap: 4px;
+    font-size: 11px;
+    border: 0;
+    border-radius: 0 8px 8px 0;
+    box-shadow: inset 1px 0 0 var(--line);
+    color: var(--text-dim);
+  }
+  #planAddActivity .btn__icon { width: 13px; height: 13px; }
+
+  /* ── the day grid ──────────────────────────────────────
+     Both halves stay side by side so the whole day fits on
+     one screen; the labels get smaller instead of the day
+     getting longer. */
+  body.planpage { --slot-h: 13px; }
+  .grid-wrapper { margin-top: 10px; }
+  .grid { grid-template-columns: 1fr 1fr; gap: 7px; }
+  .grid__body { gap: 5px; }
+  .grid__gutter { width: 21px; }
+  .grid__hour { font-size: 7.5px; letter-spacing: -0.02em; }
+  .grid__hour.is-half { color: transparent; }
+  .grid__colheader { margin-bottom: 5px; padding-bottom: 4px; }
+  .grid__coltitle { font-size: 8px; letter-spacing: 0.02em; }
+  .grid__colrange { display: none; }
+  .grid__track { border-radius: 8px; }
+  .grid__block {
+    left: 2px;
+    right: 2px;
+    gap: 3px;
+    padding: 0 4px 0 8px;
+    border-radius: 5px;
+    font-size: 9.5px;
+  }
+  .grid__blockdur { font-size: 8.5px; }
+  .grid__grip { width: 10px; }
+
+  /* ── the inspector ─────────────────────────────────────── */
+  .inspector {
+    position: relative;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 7px;
+    margin-top: 10px;
+    padding: 8px;
+    border-radius: 10px;
+  }
+  .inspector__info { gap: 7px; padding-right: 30px; }
+  .inspector__title { font-size: 12px; }
+  .inspector__meta { font-size: 10px; }
+  .inspector__acts {
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 3px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .inspector__acts::-webkit-scrollbar { display: none; }
+  .inspector__divider { height: 18px; }
+  .inspector-btn { height: 30px; padding: 0 8px; gap: 4px; font-size: 10.5px; }
+  .inspector-btn svg { width: 14px; height: 14px; }
+  /* The close button lives in the corner so it is always reachable — the
+     action row scrolls, and a close button you have to scroll to find is
+     not a close button. */
+  .inspector__acts .inspector-btn--icon {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    color: var(--text-faint);
+  }
+
+  /* ── the numbers ───────────────────────────────────────── */
+  .plan__side-col { gap: 12px; }
+  .plan__side-col .weekrow__stats .plan__stat {
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 2px;
+    padding: 8px 1px;
+    border-right: 1px solid var(--line);
+    border-bottom: none;
+  }
+  .plan__side-col .weekrow__stats .plan__stat:last-child { border-right: none; }
+  .plan__side-col .weekrow__stats .plan__stat-label {
+    font-size: 7.5px;
+    letter-spacing: 0.02em;
+  }
+  .plan__side-col .weekrow__stats .plan__stat-value { font-size: 11.5px; }
+
+  /* ── tasks ─────────────────────────────────────────────── */
+  .taskform { margin-bottom: 10px; }
+  .taskform__row { gap: 6px; }
+  .taskform .input {
+    flex: 1 1 100%;
+    min-width: 0;
+    height: 38px;
+    font-size: 12.5px;
+  }
+  .taskform .select-wrap { flex: 1 1 auto; min-width: 0; margin-bottom: 0; }
+  .taskform .select { width: 100%; min-width: 0; height: 34px; font-size: 12px; }
+  .taskform .btn { flex: none; min-width: 0; height: 34px; padding: 0 20px; font-size: 12px; }
+  .tasklist { gap: 10px; }
+  .taskrow { gap: 9px; padding: 7px 2px; }
+  .taskrow__text { font-size: 12.5px; }
+  .taskgroup__head { padding: 0 2px 5px; font-size: 9px; letter-spacing: 0.08em; }
+  .taskcheck { width: 19px; height: 19px; }
+  .taskrow .icon-btn--sm { width: 26px; height: 26px; }
+  .plan__side-actions .btn { height: 32px; font-size: 11.5px; }
+
+  /* ── the clock ─────────────────────────────────────────
+     Start at the top; the dial should not float in a sea of
+     empty space on a tall phone. */
+  .stage {
+    justify-content: flex-start;
+    min-height: 0;
+    padding: 4px 13px max(30px, env(safe-area-inset-bottom));
+  }
+  .segmented { margin-bottom: 20px; }
+  .segmented__btn { padding: 7px 20px; font-size: 12px; }
+  .dial { width: min(40vh, 82vw, 300px); }
+  .readout__time { font-size: clamp(2.6rem, 16vw, 4rem); }
+  .controls { width: 100%; margin-top: 26px; }
+  .controls .btn { flex: 1; max-width: 190px; height: 44px; font-size: 14px; }
+  .subcontrols { margin-top: 12px; }
+  .today { margin-top: 18px; font-size: 11.5px; }
+  .agenda { width: 100%; margin-top: 18px; padding: 12px; }
   .agenda__body { grid-template-columns: 1fr; }
-  .agenda__body[data-single="false"] .agenda__session { padding-right: 0; border-right: none; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
-  .agenda__cta { height: 30px; font-size: 11px; }
-  .settings { width: min(420px, calc(100vw - 14px)); right: 7px; top: calc(var(--nav-h, 60px) + 6px); }
-  .modal__form { width: min(420px, calc(100vw - 14px)); }
+  .agenda__body[data-single="false"] .agenda__session {
+    padding-right: 0;
+    padding-bottom: 10px;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+  .agenda__body[data-single="false"] .agenda__tasks { padding-left: 0; }
+  .agenda__cta { height: 34px; font-size: 12px; }
+  .settings { width: min(420px, calc(100vw - 16px)); right: 8px; top: 62px; }
+  .modal__form { width: min(420px, calc(100vw - 16px)); }
+}
+
+/* Very small phones: shave a few more pixels without losing the day. */
+@media (max-width: 380px) {
+  .topbar { padding-left: 10px; padding-right: 10px; }
+  .workspace { padding-left: 10px; padding-right: 10px; padding-top: 2px; }
+  .brand__name { display: none; }
+  .plan__title { font-size: 1.1rem; }
+  .plan__primary-actions .btn { font-size: 11.5px; }
+  .weekday { padding: 4px 1px 3px; }
+  .weekday__name { font-size: 7px; }
+  .weekday__num { font-size: 12px; }
+  .plan__quickbar .btn { font-size: 10px; padding: 0 2px; }
+  body.planpage { --slot-h: 12px; }
+  .grid { gap: 6px; }
+  .grid__gutter { width: 19px; }
+  .grid__block { padding-left: 6px; font-size: 9px; }
+  .dial { width: min(38vh, 80vw, 260px); }
+}
+
+/* Touch screens: let the page scroll when a finger starts on the
+   timetable, and drop the resize handles — the inspector does that
+   job with buttons that are actually thumb-sized. */
+@media (hover: none), (pointer: coarse) {
+  .grid__track { touch-action: pan-y; }
+  .grid__edge,
+  .grid__grip { display: none; }
 }
 
 /* ── The printed day ─────────────────────────────────────── */

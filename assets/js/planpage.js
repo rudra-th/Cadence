@@ -38,6 +38,10 @@ let drag = null;              // the gesture in progress, if any
 let history = [];             // undo
 let future = [];              // redo
 
+/* A finger is not a mouse: the timetable paints on tap and scrolls on drag,
+   so the hint has to say so. */
+const COARSE_POINTER = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+
 /* Last-used print style, remembered in the store. */
 let printOpts = { ...state.settings.print };
 
@@ -224,6 +228,7 @@ function writeBlocks(next) {
 
 function render() {
   renderHeader();
+  renderStats();
   renderWeekStrip();
   renderGrid();
   renderPicker();
@@ -237,7 +242,6 @@ function render() {
 
 function renderHeader() {
   if (!el.planTitle) return;
-  const summary = planSummary(current);
   const isToday = currentDate === dateKey(Date.now());
 
   el.planTitle.textContent = labelDate(currentDate, { weekday: 'long', day: 'numeric', month: 'long' });
@@ -249,19 +253,28 @@ function renderHeader() {
     if (el2) el2.textContent = isToday ? 'Today' : '';
   }
 
-  if (el.planWeekStats) {
-    const fmt = (m) => (m >= 60 ? Math.floor(m/60)+'h'+(m%60? m%60+'m':'') : m? m+'m':'0m');
-    el.planWeekStats.innerHTML = `
-      <div class="plan__stat"><span class="plan__stat-label">Blocks</span><span class="plan__stat-value">${summary.blocks}</span></div>
-      <div class="plan__stat"><span class="plan__stat-label">Study</span><span class="plan__stat-value">${fmt(summary.studyMin)}</span></div>
-      <div class="plan__stat"><span class="plan__stat-label">Rest</span><span class="plan__stat-value">${fmt(summary.restMin)}</span></div>
-      <div class="plan__stat"><span class="plan__stat-label">Free</span><span class="plan__stat-value">${fmt(summary.freeMin)}</span></div>
-      <div class="plan__stat"><span class="plan__stat-label">Tasks</span><span class="plan__stat-value">${summary.tasksDone}/${summary.tasks}</span></div>
-    `;
-  }
-
   if (el.planUndo) el.planUndo.disabled = !history.length;
   if (el.planRedo) el.planRedo.disabled = !future.length;
+}
+
+/**
+ * The numbers that describe the day.
+ *
+ * One renderer for one element — the header used to write five of them and the
+ * week strip six, so the rail changed shape depending on which ran last.
+ */
+function renderStats() {
+  if (!el.planWeekStats) return;
+  const summary = planSummary(current);
+  const fmt = (m) => (m >= 60 ? Math.floor(m / 60) + 'h' + (m % 60 ? (m % 60) + 'm' : '') : m ? m + 'm' : '0m');
+  el.planWeekStats.innerHTML = `
+    <div class="plan__stat"><span class="plan__stat-label">Blocks</span><span class="plan__stat-value">${summary.blocks}</span></div>
+    <div class="plan__stat"><span class="plan__stat-label">Study</span><span class="plan__stat-value">${fmt(summary.studyMin)}</span></div>
+    <div class="plan__stat"><span class="plan__stat-label">Rest</span><span class="plan__stat-value">${fmt(summary.restMin)}</span></div>
+    <div class="plan__stat"><span class="plan__stat-label">Sleep</span><span class="plan__stat-value">${fmt(summary.sleepMin || 0)}</span></div>
+    <div class="plan__stat"><span class="plan__stat-label">Free</span><span class="plan__stat-value">${fmt(summary.freeMin)}</span></div>
+    <div class="plan__stat"><span class="plan__stat-label">Tasks</span><span class="plan__stat-value">${summary.tasksDone}/${summary.tasks}</span></div>
+  `;
 }
 
 /**
@@ -472,19 +485,6 @@ function renderWeekStrip() {
     btn.innerHTML = `<div class="weekday__left"><span class="weekday__name">${labelDate(key, { weekday: 'short' })}</span><span class="weekday__num">${key.slice(8)}</span></div><span class="weekday__dot"></span>`;
     btn.addEventListener('click', () => goToDate(key));
     strip.appendChild(btn);
-  }
-
-  if (el.planWeekStats) {
-    const summary = planSummary(current);
-    const fmt = (m) => (m >= 60 ? Math.floor(m/60)+'h'+(m%60? m%60+'m':'') : m? m+'m':'0m');
-    el.planWeekStats.innerHTML = `
-      <div class="plan__stat"><span class="plan__stat-label">Blocks</span><span class="plan__stat-value">${summary.blocks}</span></div>
-      <div class="plan__stat"><span class="plan__stat-label">Study</span><span class="plan__stat-value">${fmt(summary.studyMin)}</span></div>
-      <div class="plan__stat"><span class="plan__stat-label">Rest</span><span class="plan__stat-value">${fmt(summary.restMin)}</span></div>
-      <div class="plan__stat"><span class="plan__stat-label">Sleep</span><span class="plan__stat-value">${fmt(summary.sleepMin || 0)}</span></div>
-      <div class="plan__stat"><span class="plan__stat-label">Free</span><span class="plan__stat-value">${fmt(summary.freeMin)}</span></div>
-      <div class="plan__stat"><span class="plan__stat-label">Tasks</span><span class="plan__stat-value">${summary.tasksDone}/${summary.tasks}</span></div>
-    `;
   }
 }
 
@@ -709,11 +709,22 @@ function pickActivity(a) {
 function updateGridHint() {
   const hint = $('gridHint');
   if (!hint) return;
-  if (eraseMode) { hint.textContent = 'Erasing — drag across the squares you want to clear.'; return; }
+  if (eraseMode) {
+    hint.textContent = COARSE_POINTER
+      ? 'Erasing — tap the squares you want to clear.'
+      : 'Erasing — drag across the squares you want to clear.';
+    return;
+  }
   const a = brushActivity();
-  hint.textContent = a
-    ? `Drag across the grid to fill every square you cross with ${a.label.toLowerCase()}.`
-    : 'Pick an activity, then drag across the grid.';
+  if (!a) {
+    hint.textContent = COARSE_POINTER
+      ? 'Pick an activity, then tap a square.'
+      : 'Pick an activity, then drag across the grid.';
+    return;
+  }
+  hint.textContent = COARSE_POINTER
+    ? `Tap a square to paint ${a.label.toLowerCase()}. Tap a block to edit it.`
+    : `Drag across the grid to fill every square you cross with ${a.label.toLowerCase()}.`;
 }
 
 /** What is running right now, and what comes after it. */
@@ -734,14 +745,22 @@ function renderNow() {
 
   const label = cur ? 'Now' : (isToday ? 'Next up' : 'Starts');
   const value = cur || next;
-  
+
+  // Nothing running, nothing next — the pill has nothing to say, so it says
+  // nothing instead of printing two dashes in the middle of the card.
+  if (!value) {
+    bar.hidden = true;
+    if (el.planStart) el.planStart.disabled = true;
+    return;
+  }
+
   const nowLabel = document.getElementById('nowLabel');
   const nowValue = document.getElementById('nowValue');
   const nowTime = document.getElementById('nowTime');
   
   if (nowLabel) nowLabel.textContent = label;
-  if (nowValue) nowValue.textContent = value ? value.label : '—';
-  if (nowTime) nowTime.textContent = value ? blockRangeLabel(value) : '—';
+  if (nowValue) nowValue.textContent = value.label;
+  if (nowTime) nowTime.textContent = blockRangeLabel(value);
 }
 
 /* ── tasks ────────────────────────────────────────────────── */
