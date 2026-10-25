@@ -94,14 +94,15 @@
             <h1 class="plan__title" id="planTitle">—</h1>
             <p class="plan__sub" id="planSub">—</p>
           </div>
-          <button class="btn btn--ghost btn--sm" id="planToday" type="button">Jump to today</button>
+
         </div>
+
         <div class="plan__primary-actions">
-          <button class="btn btn--glow btn--sm" id="planStart" type="button">
+          <button class="btn btn--glow btn--lg" id="planStart" type="button">
             <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             Start timer
           </button>
-          <button class="btn btn--soft btn--sm" id="planSaveTimer" type="button">
+          <button class="btn btn--soft btn--lg" id="planSaveTimer" type="button">
             <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
               <polyline points="17 21 17 13 7 13 7 21"/>
@@ -109,13 +110,34 @@
             </svg>
             Save to timer
           </button>
+          <button class="btn btn--primary btn--lg" id="planDownloadPdf" type="button">
+            <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Download PDF
+          </button>
         </div>
       </div>
-      <div class="weekstrip" id="planWeek" role="group" aria-label="Pick a day"></div>
+      <div class="weekrow">
+        <div class="weekstrip" id="planWeek" role="group" aria-label="Pick a day"></div>
+        <button class="btn btn--ghost btn--xs weekrow__today" id="planToday" type="button">Today</button>
+      </div>
     </header>
 
-    <div class="plan__main-grid">
-      <section class="plan__left-col">
+    <div class="plan__quickbar">
+      <div class="plan__quickbar-inner">
+        <button class="btn btn--ghost btn--xs" id="planImport" type="button">Import PDF</button>
+        <input type="file" id="planImportFile" accept="application/pdf,.pdf" hidden>
+        <button class="btn btn--ghost btn--xs" id="planCopy" type="button">Copy day</button>
+        <button class="btn btn--ghost btn--xs" id="planPrint" type="button">Print</button>
+        <button class="btn btn--ghost btn--xs btn--danger" id="planClear" type="button">Clear day</button>
+      </div>
+    </div>
+
+    <div class="plan__layout">
+      <div class="plan__main-col">
         <section class="card card--elevated plan__day">
           <div class="card__head">
             <div>
@@ -205,94 +227,9 @@
             </div>
           </div>
         </section>
-      </section>
-
-      <aside class="plan__right-col">
-        <section class="card card--elevated">
-          <div class="card__head">
-            <div>
-              <h2 class="card__title">Quick Actions</h2>
-              <p class="card__hint">Import, export & manage</p>
-            </div>
-          </div>
-          <div class="quick-actions">
-            <button class="quick-action-btn" id="planImport" type="button">
-              <div class="quick-action-btn__icon">
-                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                  <polyline points="14 2 14 8 20 8"/>
-                  <line x1="12" y1="18" x2="12" y2="12"/>
-                  <line x1="9" y1="15" x2="12" y2="12"/>
-                  <line x1="15" y1="15" x2="12" y2="12"/>
-                </svg>
-              </div>
-              <div class="quick-action-btn__text">
-                <div class="quick-action-btn__title">Import PDF</div>
-                <div class="quick-action-btn__desc">From timetable</div>
-              </div>
-              <svg class="quick-action-btn__arrow" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-            </button>
-            <input type="file" id="planImportFile" accept="application/pdf,.pdf" hidden>
-            
-            <button class="quick-action-btn" id="planCopy" type="button">
-              <div class="quick-action-btn__icon">
-                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                </svg>
-              </div>
-              <div class="quick-action-btn__text">
-                <div class="quick-action-btn__title">Copy day</div>
-                <div class="quick-action-btn__desc">Duplicate plan</div>
-              </div>
-              <svg class="quick-action-btn__arrow" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-            </button>
-            
-            <button class="quick-action-btn" id="planPrint" type="button">
-              <div class="quick-action-btn__icon">
-                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="6 9 6 2 18 2 18 9"/>
-                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
-                  <rect x="6" y="14" width="12" height="8"/>
-                </svg>
-              </div>
-              <div class="quick-action-btn__text">
-                <div class="quick-action-btn__title">Print</div>
-                <div class="quick-action-btn__desc">Paper format</div>
-              </div>
-              <svg class="quick-action-btn__arrow" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-            </button>
-            
-            <button class="quick-action-btn" id="planDownloadPdf" type="button">
-              <div class="quick-action-btn__icon">
-                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/>
-                  <line x1="12" y1="15" x2="12" y2="3"/>
-                </svg>
-              </div>
-              <div class="quick-action-btn__text">
-                <div class="quick-action-btn__title">Download PDF</div>
-                <div class="quick-action-btn__desc">Save as file</div>
-              </div>
-              <svg class="quick-action-btn__arrow" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-            </button>
-          </div>
-          <div class="quick-actions__footer">
-            <button class="icon-btn icon-btn--sm" id="planUndo" type="button" aria-label="Undo" title="Undo (Ctrl+Z)" disabled>
-              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h9a7 7 0 0 1 0 14h-3"/></svg>
-            </button>
-            <button class="icon-btn icon-btn--sm" id="planRedo" type="button" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled>
-              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9h-9a7 7 0 0 0 0 14h3"/></svg>
-            </button>
-            <div class="quick-actions__spacer"></div>
-            <button class="btn btn--ghost btn--sm btn--danger" id="planClear" type="button">
-              <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-              Clear day
-            </button>
-          </div>
-        </section>
-
+      </div>
+      <aside class="plan__side-col">
+        <div class="weekrow__stats" id="planWeekStats"></div>
         <section class="card card--elevated">
           <div class="card__head">
             <div>
@@ -320,6 +257,10 @@
           </form>
           <div class="tasklist" id="planTasks"></div>
         </section>
+        <div class="plan__side-actions">
+          <button class="btn btn--ghost btn--xs" id="planUndo" type="button" disabled>Undo</button>
+          <button class="btn btn--ghost btn--xs" id="planRedo" type="button" disabled>Redo</button>
+        </div>
       </aside>
     </div>
   </main>

@@ -13,7 +13,7 @@
  *    revalidate) — instant loads, quiet updates.
  */
 
-const VERSION = 'v1.2.4';
+const VERSION = 'v1.3.0';
 const CACHE = `cadence-${VERSION}`;
 
 const SHELL = [
@@ -25,6 +25,11 @@ const SHELL = [
   './manifest.webmanifest',
   './favicon.svg',
   './assets/css/styles.css',
+  './assets/css/landing-experience.css',
+  './assets/js/landing-experience.js',
+  './assets/vendor/lenis.min.js',
+  './assets/fonts/instrument-serif-latin.woff2',
+  './assets/fonts/instrument-serif-italic-latin.woff2',
   './assets/js/clock.js',
   './assets/js/planpage.js',
   './assets/js/runtime.js',

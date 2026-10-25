@@ -12,7 +12,7 @@
  * your own work never leaves a seam behind.
  */
 
-import { load, save, saveNow, getPlan, setPlan, savePlanForTimer } from './store.js';
+import { load, save, saveNow, getPlan, setPlan, savePlanForTimer, sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities, sanitizeSavedPlans } from './store.js';
 import {
   SLOT_MIN, DAY_MIN, activityMap, toneOf, ACTIVITIES,
   paintRange, removeBlock, mergeBlocks, moveBlock, resizeBlockTo,
@@ -22,7 +22,6 @@ import { dateKey, shiftKey, labelDate, clockLabel, humanDuration, minutesOfDay, 
 import { importTimetable, importErrorMessage } from './timetable-import.js';
 import { buildPlanPrint } from './printplan.js';
 import { handOverToClock, runningSession } from './runtime.js';
-import { sanitizePlan, sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities, saveNow } from './store.js';
 
 const HALF = 24;              // squares in one column (12 hours)
 const COL_MIN = 720;          // minutes in one column
@@ -50,10 +49,12 @@ const el = {
   planToday: $('planToday'),
   planTitle: $('planTitle'),
   planSub: $('planSub'),
+  planHeaderStats: $('planHeaderStats'),
+  planWeekStats: $('planWeekStats'),
   planWeek: $('planWeek'),
   planGrid: $('planGrid'),
-  planTracks: [document.querySelector('.grid__track[data-col="0"]'), document.querySelector('.grid__track[data-col="1"]')],
-  planGutters: [document.querySelector('.grid__gutter[data-col="0"]'), document.querySelector('.grid__gutter[data-col="1"]')],
+  planTracks: [],
+  planGutters: [],
   planPicker: $('planPicker'),
   planAddActivity: $('planAddActivity'),
   planInspector: $('planInspector'),
@@ -241,19 +242,22 @@ function renderHeader() {
 
   el.planTitle.textContent = labelDate(currentDate, { weekday: 'long', day: 'numeric', month: 'long' });
 
-  const bits = [];
-  if (isToday) bits.push('Today');
-  bits.push(`${summary.blocks} block${summary.blocks === 1 ? '' : 's'}`);
-  bits.push(`${humanDuration(summary.studyMin * 60000)} study`);
-  bits.push(`${humanDuration(summary.restMin * 60000)} rest`);
-  bits.push(`${humanDuration(summary.freeMin * 60000)} free`);
-  bits.push(`${summary.tasksDone}/${summary.tasks} tasks`);
   if (el.planSub) {
-    el.planSub.textContent = bits.join(' · ');
-  } else if (el.planTitle) {
-    // fallback
+    el.planSub.textContent = isToday ? 'Today' : '';
+  } else {
     const el2 = document.getElementById('planSub');
-    if (el2) el2.textContent = bits.join(' · ');
+    if (el2) el2.textContent = isToday ? 'Today' : '';
+  }
+
+  if (el.planWeekStats) {
+    const fmt = (m) => (m >= 60 ? Math.floor(m/60)+'h'+(m%60? m%60+'m':'') : m? m+'m':'0m');
+    el.planWeekStats.innerHTML = `
+      <div class="plan__stat"><span class="plan__stat-label">Blocks</span><span class="plan__stat-value">${summary.blocks}</span></div>
+      <div class="plan__stat"><span class="plan__stat-label">Study</span><span class="plan__stat-value">${fmt(summary.studyMin)}</span></div>
+      <div class="plan__stat"><span class="plan__stat-label">Rest</span><span class="plan__stat-value">${fmt(summary.restMin)}</span></div>
+      <div class="plan__stat"><span class="plan__stat-label">Free</span><span class="plan__stat-value">${fmt(summary.freeMin)}</span></div>
+      <div class="plan__stat"><span class="plan__stat-label">Tasks</span><span class="plan__stat-value">${summary.tasksDone}/${summary.tasks}</span></div>
+    `;
   }
 
   if (el.planUndo) el.planUndo.disabled = !history.length;
@@ -417,9 +421,9 @@ async function exportPdf() {
     try {
       const data = JSON.stringify({ type: 'cadence-plan', date: currentDate, plan: current, exportedAt: Date.now() });
       pdf.setFontSize(1);
-      pdf.text(data, -1000, -1000);
-      pdf.addPage();
-      pdf.setFontSize(1);
+      // Put in multiple locations to ensure it's extractable
+      pdf.text('CADENCE_PLAN_DATA:' + data, 5, 5);
+      pdf.text(data, 5, 6);
       pdf.text(data, -1000, -1000);
     } catch {}
     const name = 'Cadence — ' + labelDate(currentDate, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).replace(/,/g, '') + '.pdf';
@@ -458,7 +462,6 @@ function renderWeekStrip() {
   for (let i = -3; i <= 3; i += 1) {
     const key = shiftKey(currentDate, i);
     const pp = getPlan(state, key);
-    const s = planSummary(pp);
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'weekday';
@@ -466,10 +469,22 @@ function renderWeekStrip() {
     btn.dataset.has = pp.blocks.length ? 'true' : 'false';
     btn.dataset.today = key === today ? 'true' : 'false';
     btn.title = labelDate(key, { weekday: 'long', day: 'numeric', month: 'long' });
-    const fmt = (m) => (m >= 60 ? Math.floor(m/60)+'h'+(m%60? m%60+'m':'') : m? m+'m':'—');
-    btn.innerHTML = `<span class="weekday__name">${labelDate(key, { weekday: 'short' })}</span><span class="weekday__num">${key.slice(8)}</span><span class="weekday__meta">S ${fmt(s.studyMin)} · R ${fmt(s.restMin)} · F ${fmt(s.freeMin)}</span><span class="weekday__dot"></span>`;
+    btn.innerHTML = `<div class="weekday__left"><span class="weekday__name">${labelDate(key, { weekday: 'short' })}</span><span class="weekday__num">${key.slice(8)}</span></div><span class="weekday__dot"></span>`;
     btn.addEventListener('click', () => goToDate(key));
     strip.appendChild(btn);
+  }
+
+  if (el.planWeekStats) {
+    const summary = planSummary(current);
+    const fmt = (m) => (m >= 60 ? Math.floor(m/60)+'h'+(m%60? m%60+'m':'') : m? m+'m':'0m');
+    el.planWeekStats.innerHTML = `
+      <div class="plan__stat"><span class="plan__stat-label">Blocks</span><span class="plan__stat-value">${summary.blocks}</span></div>
+      <div class="plan__stat"><span class="plan__stat-label">Study</span><span class="plan__stat-value">${fmt(summary.studyMin)}</span></div>
+      <div class="plan__stat"><span class="plan__stat-label">Rest</span><span class="plan__stat-value">${fmt(summary.restMin)}</span></div>
+      <div class="plan__stat"><span class="plan__stat-label">Sleep</span><span class="plan__stat-value">${fmt(summary.sleepMin || 0)}</span></div>
+      <div class="plan__stat"><span class="plan__stat-label">Free</span><span class="plan__stat-value">${fmt(summary.freeMin)}</span></div>
+      <div class="plan__stat"><span class="plan__stat-label">Tasks</span><span class="plan__stat-value">${summary.tasksDone}/${summary.tasks}</span></div>
+    `;
   }
 }
 
@@ -1259,7 +1274,9 @@ async function importCadenceJson(file) {
           };
           state.plans = sanitizePlans(parsed.plans);
           state.activities = sanitizeActivities(parsed.activities);
-          if (Array.isArray(parsed.saved)) state.saved = parsed.saved;
+          if (Array.isArray(parsed.saved)) {
+            state.saved = sanitizeSavedPlans(parsed.saved);
+          }
           saveNow(state);
           showToast('Cadence data imported');
           resolve({ type: 'store' });
@@ -1317,26 +1334,90 @@ async function tryImportCadencePdf(buffer) {
     let text = '';
     for (let i = 0; i < bytes.length; i++) {
       const b = bytes[i];
+      if (b === 0) continue;
       if (b >= 32 && b < 127) text += String.fromCharCode(b);
-      else if (b === 10 || b === 13) text += '\n';
+      else if (b === 9 || b === 10 || b === 13) text += '\n';
       else text += ' ';
     }
-    const m = text.match(/\{"type":"cadence-plan"[^{}]*\}/);
-    if (m) {
-      const parsed = JSON.parse(m[0]);
-      if (parsed.plan) {
-        const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : currentDate;
-        const plan = sanitizePlan(parsed.plan, date);
-        if (plan.blocks.length || plan.tasks.length) {
-          setPlan(state, date, plan);
-          currentDate = date;
-          current = plan;
-          selectedId = '';
-          render();
-          showToast(`Imported Cadence plan for ${date}`);
-          return true;
+    // Also try to decode as latin-1/utf-8 more aggressively
+    try {
+      const decoder = new TextDecoder('utf-8', { fatal: false });
+      const decoded = decoder.decode(bytes);
+      if (decoded.length > text.length) text = decoded;
+    } catch {}
+    // Look for tagged data first
+    let tagged = text.match(/CADENCE_PLAN_DATA:\s*(\{[\s\S]*?\})/);
+    if (tagged) {
+      try {
+        const parsed = JSON.parse(tagged[1]);
+        if (parsed.type === 'cadence-plan' && parsed.plan) {
+          const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : currentDate;
+          const plan = sanitizePlan(parsed.plan, date);
+          if (plan.blocks.length || plan.tasks.length) {
+            setPlan(state, date, plan);
+            currentDate = date;
+            current = plan;
+            selectedId = '';
+            render();
+            showToast(`Imported Cadence plan for ${date}`);
+            return true;
+          }
+        }
+      } catch {}
+    }
+    const idx = text.indexOf('cadence-plan');
+    if (idx >= 0) {
+      const start = text.lastIndexOf('{', idx);
+      if (start >= 0) {
+        let braceCount = 0;
+        for (let i = start; i < text.length && i < start + 100000; i++) {
+          if (text[i] === '{') braceCount++;
+          else if (text[i] === '}') {
+            braceCount--;
+            if (braceCount === 0) {
+              try {
+                const candidate = text.slice(start, i + 1);
+                const parsed = JSON.parse(candidate);
+                if ((parsed.type === 'cadence-plan' && parsed.plan) || parsed.plan) {
+                  const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : currentDate;
+                  const planData = parsed.plan || parsed;
+                  const plan = sanitizePlan(planData, date);
+                  if (plan.blocks.length || plan.tasks.length) {
+                    setPlan(state, date, plan);
+                    currentDate = date;
+                    current = plan;
+                    selectedId = '';
+                    render();
+                    showToast(`Imported Cadence plan for ${date}`);
+                    return true;
+                  }
+                }
+              } catch (e) {
+                // continue searching
+              }
+              break;
+            }
+          }
         }
       }
+    }
+    if (m) {
+      try {
+        const parsed = JSON.parse(m[0]);
+        if (parsed.plan) {
+          const date = parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : currentDate;
+          const plan = sanitizePlan(parsed.plan, date);
+          if (plan.blocks.length || plan.tasks.length) {
+            setPlan(state, date, plan);
+            currentDate = date;
+            current = plan;
+            selectedId = '';
+            render();
+            showToast(`Imported Cadence plan for ${date}`);
+            return true;
+          }
+        }
+      } catch {}
     }
   } catch {}
   return false;
@@ -1438,6 +1519,8 @@ function continueTimetable(date = dateKey(Date.now())) {
 /* ── go ───────────────────────────────────────────────────── */
 
 function init() {
+  el.planTracks = [document.querySelector('.grid__track[data-col="0"]'), document.querySelector('.grid__track[data-col="1"]')];
+  el.planGutters = [document.querySelector('.grid__gutter[data-col="0"]'), document.querySelector('.grid__gutter[data-col="1"]')];
   buildGutters();
   bindEvents();
   render();

@@ -1,499 +1,566 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Cadence — Plan your day. Do your day.</title>
-<meta name="description" content="Cadence helps you plan your day in simple chunks and tells you what to do next. Split your day into 30-minute blocks, then follow along with a timer. Works offline, no account needed.">
-<meta name="theme-color" content="#000000">
-<meta name="color-scheme" content="dark">
-<link rel="manifest" href="./manifest.webmanifest">
-<link rel="icon" href="./favicon.svg" type="image/svg+xml">
-<link rel="icon" href="./assets/icons/favicon-32.png" sizes="32x32" type="image/png">
-<link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Cadence">
-<meta name="mobile-web-app-title" content="Cadence">
-<link rel="preload" href="./assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="./assets/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="./assets/css/styles.css">
-<link rel="stylesheet" href="./assets/css/landing.css">
-<script>
-  /* The theme is set before the first paint, so the landing page and the
-     workspace always open in the same palette. */
-  (function () {
-    try {
-      var raw = localStorage.getItem('cadence.store.v1');
-      var theme = raw ? (JSON.parse(raw).settings || {}).theme : null;
-      document.documentElement.dataset.theme = (theme === 'graphite') ? 'graphite' : 'void';
-    } catch (e) {
-      document.documentElement.dataset.theme = 'void';
-    }
-  })();
-</script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Cadence — Plan the day. Run the day.</title>
+  <meta name="description" content="Cadence is an offline-first day planner. Paint your day into blocks on a 24-hour grid, then let the clock tell you what's next — one thing at a time. No account, no tracking, nothing leaves your device.">
+  <meta name="theme-color" content="#000000">
+  <meta name="color-scheme" content="dark">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Cadence — Plan the day. Run the day.">
+  <meta property="og:description" content="Offline-first day planner. Paint your day into blocks on a 24-hour grid, then let the clock tell you what's next — one thing at a time.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="./index.html">
+  <meta property="og:image" content="./assets/icons/icon-512.png">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Cadence — Plan the day. Run the day.">
+  <meta name="twitter:description" content="Offline-first day planner. Paint your day into blocks on a 24-hour grid, then let the clock tell you what's next — one thing at a time.">
+  <meta name="twitter:image" content="./assets/icons/icon-512.png">
+
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="./assets/icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png">
+
+  <link rel="preload" href="./assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="./assets/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="./assets/fonts/instrument-serif-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="./assets/fonts/instrument-serif-italic-latin.woff2" as="font" type="font/woff2" crossorigin>
+
+  <link rel="stylesheet" href="./assets/css/landing-experience.css">
 </head>
-<body class="landing cinematic">
+<body>
 
-<header class="nav nav--sticky">
-  <a class="brand" href="./index.html" aria-label="Cadence — home">
-    <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
-      <defs>
-        <linearGradient id="brandGrad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="var(--accent)"/>
-          <stop offset="100%" stop-color="var(--accent-2)"/>
-        </linearGradient>
-      </defs>
-      <circle cx="16" cy="16" r="11.5" fill="none" stroke="url(#brandGrad)" stroke-width="2.6"
-              stroke-linecap="round" stroke-dasharray="54 18" transform="rotate(-58 16 16)"/>
-      <path d="M16 16 L20.8 9.4" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
-      <circle cx="16" cy="16" r="1.9" fill="currentColor"/>
-    </svg>
-    <span class="brand__name">Cadence</span>
-  </a>
+  <a class="skip" href="#main">Skip to content</a>
 
-  <nav class="nav__links" aria-label="Sections">
-    <a href="#story">Story</a>
-    <a href="#features">Overview</a>
-    <a href="#how">Workflow</a>
-    <a href="#local">Privacy</a>
-  </nav>
-
-  <div class="nav__actions">
-    <button class="themebtn" id="themeToggle" type="button" aria-label="Switch the palette">
-      <span class="themebtn__dot" aria-hidden="true"></span>
-      <span id="themeLabel">Void</span>
-    </button>
-    <a class="btn btn--soft btn--sm" href="./plan.html">Plan</a>
-    <a class="btn btn--primary btn--sm" href="./clock.html">Open the clock</a>
+  <!-- Film leader -->
+  <div class="boot" id="boot" aria-hidden="true">
+    <div class="boot__inner">
+      <span class="boot__word">CADENCE</span>
+      <span class="boot__bar"><i id="bootBar"></i></span>
+      <span class="boot__meta"><span>LOADING THE DAY</span><span id="bootPct">000</span></span>
+    </div>
   </div>
-</header>
 
-<div class="scroll-progress">
-  <div class="scroll-progress__bar" id="scrollProgress"></div>
-</div>
+  <div class="grain" aria-hidden="true"></div>
 
-<main class="cinematic-main">
+  <div class="cursor" id="cursor" aria-hidden="true">
+    <span class="cursor__dot"></span>
+    <span class="cursor__ring"></span>
+  </div>
 
-  <!-- ══════════ Hero ══════════ -->
-  <section class="wrap hero cinematic-section">
-    <div class="hero__bg">
-      <div class="hero__orb hero__orb--1"></div>
-      <div class="hero__orb hero__orb--2"></div>
-      <div class="hero__orb hero__orb--3"></div>
-    </div>
-    <div class="hero__content">
-      <div class="hero__badge">
-        <span class="hero__badge-dot"></span>
-        <span>Works offline • No account • Stays on your device</span>
-      </div>
-      <p class="eyebrow">A simple daily plan</p>
-      <h1>Plan your day.<br><span class="gradient-text">Actually do it.</span></h1>
-      <p class="hero__lede">
-        Most to-do lists get forgotten. Cadence shows your whole day at a glance in 30-minute chunks,
-        then tells you exactly what to focus on right now. No distractions. No sign-up. Just do the next thing.
-      </p>
+  <!-- ── Navigation ─────────────────────────────────────────────── -->
+  <header class="nav" id="nav">
+    <div class="nav__inner">
+      <a class="brand" href="./index.html" aria-label="Cadence — home">
+        <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+          <circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="1.8"/>
+          <circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="1.8"
+                  stroke-dasharray="20 49" transform="rotate(-64 16 16)"/>
+          <path d="M16 16 L19.4 10.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <circle cx="16" cy="16" r="1.6" fill="currentColor"/>
+        </svg>
+        <span class="brand__word">CADENCE</span>
+        <span class="brand__dot" aria-hidden="true"></span>
+      </a>
 
-      <div class="hero__cta">
-        <a class="btn btn--primary btn--glow" href="./plan.html">
-          <span>Build your day in 2 minutes</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      <nav class="nav__links" aria-label="Sections">
+        <a href="#how"><span>01</span>How it works</a>
+        <a href="#day"><span>02</span>A day</a>
+        <a href="#privacy"><span>03</span>Privacy</a>
+      </nav>
+
+      <div class="nav__actions">
+        <span class="nav__clock" id="navClock">00:00</span>
+        <a class="btn btn--ghost btn--sm" href="./clock.html">
+          Timer
         </a>
-        <a class="btn btn--soft btn--glass" href="./clock.html">
-          <span>See it in action</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <a class="btn btn--primary btn--sm" href="./plan.html">
+          <span class="long">Open&nbsp;</span>planner
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M7 17 17 7M9 7h8v8"/>
+          </svg>
         </a>
-        <button class="btn btn--soft btn--glass" id="installLandingBtn" type="button" hidden>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          <span>Install App</span>
-        </button>
-      </div>
-
-      <div class="hero__stats">
-        <div class="hero__stat">
-          <div class="hero__stat-num">1<span style="font-size: 0.6em; opacity: 0.6;">view</span></div>
-          <div class="hero__stat-label">See your whole day</div>
-        </div>
-        <div class="hero__stat-divider"></div>
-        <div class="hero__stat">
-          <div class="hero__stat-num">Now<span style="font-size: 0.6em; opacity: 0.6;"></span></div>
-          <div class="hero__stat-label">Know what to do next</div>
-        </div>
-        <div class="hero__stat-divider"></div>
-        <div class="hero__stat">
-          <div class="hero__stat-num">0<span style="font-size: 0.6em; opacity: 0.6;">signups</span></div>
-          <div class="hero__stat-label">Start in seconds</div>
-        </div>
       </div>
     </div>
+    <div class="nav__progress" aria-hidden="true"><i id="pageProgress"></i></div>
+  </header>
 
-    <div class="preview cinematic-preview" aria-hidden="true">
-      <div class="preview__glow preview__glow--1"></div>
-      <div class="preview__glow preview__glow--2"></div>
-      <div class="preview__glass">
-        <div class="preview__header">
-          <div class="preview__dots"><span></span><span></span><span></span></div>
-          <div class="preview__title">Cadence</div>
-        </div>
-        <div class="preview__grid">
-          <div class="preview__row">
-            <span class="preview__time">06:00</span>
-            <span class="preview__track">
-              <span class="preview__block preview__block--1" style="left:0%;width:33%"></span>
-            </span>
-          </div>
-          <div class="preview__row">
-            <span class="preview__time">09:00</span>
-            <span class="preview__track">
-              <span class="preview__block preview__block--2" style="left:16%;width:50%"></span>
-            </span>
-          </div>
-          <div class="preview__row">
-            <span class="preview__time">13:00</span>
-            <span class="preview__track">
-              <span class="preview__block preview__block--3" style="left:66%;width:33%"></span>
-            </span>
-          </div>
-          <div class="preview__row">
-            <span class="preview__time">17:00</span>
-            <span class="preview__track">
-              <span class="preview__block preview__block--4" style="left:83%;width:17%"></span>
-            </span>
-          </div>
-        </div>
+  <main id="main">
 
-        <div class="preview__dial">
-          <svg class="preview__ring" viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
-            <circle cx="50" cy="50" r="42" fill="none" stroke="url(#ringGrad)" stroke-width="6"
-                    stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="65"
-                    transform="rotate(-90 50 50)"/>
-            <defs>
-              <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="#7FA6FF"/>
-                <stop offset="50%" stop-color="#63C9A4"/>
-                <stop offset="100%" stop-color="#E9B667"/>
-              </linearGradient>
-            </defs>
-          </svg>
-          <div class="preview__readout">
-            <div class="preview__time-big" id="previewClock">--:--</div>
-            <div class="preview__note" id="previewDate">—</div>
-            <div class="preview__status"><span class="preview__status-dot"></span>Running</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="scroll-indicator">
-      <span>Scroll to explore</span>
-      <div class="scroll-indicator__mouse">
-        <div class="scroll-indicator__wheel"></div>
-      </div>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
-    </div>
-  </section>
-
-  <!-- ══════════ Scrollytelling ══════════ -->
-  <section class="wrap section storytelling" id="story">
-    <div class="section__head">
-      <p class="section__kicker">Less overwhelm, more action</p>
-      <h2>Commit to less.<br><span class="gradient-text">Finish more.</span></h2>
-      <p class="section__lede">
-        When you can only see "what's next", you stop overthinking and start doing. Cadence uses clarity and focus to help you actually follow through.
-      </p>
-    </div>
-
-    <div class="story">
-      <div class="story__item" data-story="1">
-        <div class="story__content">
-          <span class="story__number">01</span>
-          <h3>See the whole day</h3>
-          <p>Put everything you need to do on one simple view. No long list that hides half of it. Just your day, laid out clearly so it doesn't feel huge.</p>
-        </div>
-        <div class="story__visual">
-          <div class="story__mockup">
-            <div class="story__mockup-header"></div>
-            <div class="story__mockup-grid">
-              <div class="story__mockup-row"><span></span><div class="story__mockup-block" style="width: 40%; background: linear-gradient(90deg, #7FA6FF, transparent);"></div></div>
-              <div class="story__mockup-row"><span></span><div class="story__mockup-block" style="width: 60%; background: linear-gradient(90deg, #63C9A4, transparent); margin-left: 10%;"></div></div>
-              <div class="story__mockup-row"><span></span><div class="story__mockup-block" style="width: 30%; background: linear-gradient(90deg, #E9B667, transparent); margin-left: 40%;"></div></div>
-            </div>
-          </div>
-        </div>
+    <!-- ── Hero ─────────────────────────────────────────────────── -->
+    <section class="hero" id="top">
+      <div class="hero__dial" id="heroDial" aria-hidden="true">
+        <svg viewBox="0 0 400 400">
+          <circle cx="200" cy="200" r="190" fill="none" stroke="currentColor" stroke-width="1" opacity="0.35"/>
+          <circle cx="200" cy="200" r="120" fill="none" stroke="currentColor" stroke-width="1" opacity="0.18"/>
+          <g id="dialTicks"></g>
+          <line class="dial-hand dial-hand--hour" id="dialHour" x1="200" y1="200" x2="200" y2="118"/>
+          <line class="dial-hand dial-hand--min" id="dialMinute" x1="200" y1="200" x2="200" y2="76"/>
+          <line class="dial-hand dial-hand--sec" id="dialSecond" x1="200" y1="200" x2="200" y2="64"/>
+          <circle cx="200" cy="200" r="3.4" fill="currentColor" opacity="0.9"/>
+        </svg>
       </div>
 
-      <div class="story__item story__item--reverse" data-story="2">
-        <div class="story__content">
-          <span class="story__number">02</span>
-          <h3>Do just the next thing</h3>
-          <p>Open the timer and it shows you what's up right now. No need to pick from a huge list. Focus on one thing, finish it, move to the next.</p>
-        </div>
-        <div class="story__visual">
-          <div class="story__dial-large">
-            <svg viewBox="0 0 120 120">
-              <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8"/>
-              <circle cx="60" cy="60" r="50" fill="none" stroke="url(#storyGrad)" stroke-width="8"
-                      stroke-linecap="round" stroke-dasharray="314" stroke-dashoffset="78"
-                      transform="rotate(-90 60 60)"/>
-              <defs>
-                <linearGradient id="storyGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stop-color="#7FA6FF"/>
-                  <stop offset="100%" stop-color="#63C9A4"/>
-                </linearGradient>
-              </defs>
-            </svg>
-            <div class="story__dial-content">
-              <div class="story__dial-time">24:58</div>
-              <div class="story__dial-label">Deep Work</div>
-            </div>
-          </div>
-        </div>
+      <div class="hero__meta fade-up" style="--d:.12s">
+        <span>Cadence — an offline-first day planner</span>
+        <span class="hero__meta-right"><span class="live-dot" aria-hidden="true"></span>Local time&nbsp;<b id="heroTime">00:00</b></span>
       </div>
 
-      <div class="story__item" data-story="3">
-        <div class="story__content">
-          <span class="story__number">03</span>
-          <h3>Feel your progress</h3>
-          <p>See how much you actually did this week. Small wins add up. A simple streak keeps you going without guilt trips.</p>
-        </div>
-        <div class="story__visual">
-          <div class="story__stats-card">
-            <div class="story__stats-row">
-              <span>This week</span>
-              <span style="color: var(--text);">32h 45m</span>
-            </div>
-            <div class="story__stats-bar">
-              <div style="width: 70%; background: linear-gradient(90deg, #7FA6FF, #63C9A4);"></div>
-            </div>
-            <div class="story__stats-row" style="margin-top: 16px;">
-              <span>Streak</span>
-              <span style="color: #63C9A4;">🔥 12 days</span>
-            </div>
+      <div class="hero__main">
+        <h1 class="hero__title">
+          <span class="l"><span>Plan the day.</span></span>
+          <span class="l"><span class="outline"><em>Run</em> the day.</span></span>
+        </h1>
+      </div>
+
+      <div class="hero__foot">
+        <div class="fade-up" style="--d:.4s">
+          <p class="hero__desc">
+            Cadence turns the day into blocks you can actually follow. Paint it once,
+            then let the clock tell you what's next — one thing at a time.
+          </p>
+          <div class="hero__actions">
+            <a class="btn btn--primary" href="./plan.html">
+              Plan today
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 12h14M13 6l6 6-6 6"/>
+              </svg>
+            </a>
+            <a class="btn btn--ghost" href="./clock.html">Start the clock</a>
           </div>
         </div>
-      </div>
-    </div>
-  </section>
 
-  <!-- ══════════ The two halves ══════════ -->
-  <section class="wrap section" id="features">
-    <div class="section__head">
-      <p class="section__kicker">Simple by design</p>
-      <h2>Plan it. Do it.<br><span style="background: linear-gradient(90deg, var(--plan-study), var(--plan-rest)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">One after another.</span></h2>
-      <p class="section__lede">
-        See your whole day at once, then focus on just what's next. No clutter, no complex setup — just enough structure to get moving.
-      </p>
-    </div>
-
-    <div class="features">
-      <article class="feature" id="planner">
-        <h3 class="feature__title">Plan</h3>
-        <p class="feature__body">
-          Lay out your day on a simple grid. Pick what you want to do and drag it in. Blocks snap together so you can build your plan in seconds.
-        </p>
-        <ul class="feature__list">
-          <li>Whole day at a glance</li>
-          <li>Add your own things to do</li>
-          <li>Quick to change if plans shift</li>
-          <li>Easy to copy or start fresh</li>
+        <ul class="hero__facts fade-up" style="--d:.5s">
+          <li>No account, ever</li>
+          <li>Works with no network</li>
+          <li>Stays on your device</li>
         </ul>
-        <div class="feature__art">
-          <div class="preview__grid">
-            <div class="preview__row">
-              <span class="preview__time">07:30</span>
-              <span class="preview__track">
-                <span class="preview__block" style="left:0%;width:29%;--tone:#666666"></span>
-              </span>
+
+        <a class="hero__scroll fade-up" href="#film" style="--d:.6s" aria-label="Scroll to play the day">
+          <span>Scroll to play</span>
+          <i aria-hidden="true"></i>
+        </a>
+      </div>
+    </section>
+
+    <!-- ── The film: a day in four acts ─────────────────────────── -->
+    <section class="film" id="film" aria-label="A day in four acts" role="region">
+      <div class="film__sticky">
+        <canvas id="filmCanvas" aria-hidden="true"></canvas>
+        <div class="film__vignette" aria-hidden="true"></div>
+
+        <div class="film__hud" aria-hidden="true">
+          <span>Cadence <b>/</b> A day in four acts</span>
+          <span class="film__tc" id="filmTimecode">06:00</span>
+        </div>
+
+        <div class="film__captions">
+          <article class="film__caption" data-scene="0">
+            <div class="film__kicker"><span>Act 01</span><span>Shape</span></div>
+            <h2>A day is<br>a <em>shape.</em></h2>
+            <p>Twenty-four hours. Not a list to finish, but a space to fill with intent.</p>
+          </article>
+
+          <article class="film__caption" data-scene="1">
+            <div class="film__kicker"><span>Act 02</span><span>Plan</span></div>
+            <h2>Give every hour<br>a <em>place.</em></h2>
+            <p>Paint blocks across the grid. Drag, stretch, rearrange. The plan becomes a score you can read at a glance.</p>
+          </article>
+
+          <article class="film__caption" data-scene="2">
+            <div class="film__kicker"><span>Act 03</span><span>Now</span></div>
+            <h2>Then stop<br><em>deciding.</em></h2>
+            <p>The clock shows one block at a time. No scrolling, no second-guessing — just the next thing, and how long is left.</p>
+          </article>
+
+          <article class="film__caption" data-scene="3">
+            <div class="film__kicker"><span>Act 04</span><span>Finish</span></div>
+            <h2>One thing<br>at a <em>time.</em></h2>
+            <p>The day runs itself, block by block. You just show up and begin.</p>
+          </article>
+        </div>
+
+        <div class="film__now" id="filmNow" aria-hidden="true">
+          <span class="film__now-label">Deep work · Block 04 of 07</span>
+          <span class="film__now-time">32:00</span>
+          <span class="film__now-sub">until the next block</span>
+        </div>
+
+        <div class="film__bottom" aria-hidden="true">
+          <div class="film__chapters" role="tablist" aria-label="Film acts">
+            <span data-ch="0" role="tab" aria-selected="false"><b>01</b> Shape</span>
+            <span data-ch="1" role="tab" aria-selected="false"><b>02</b> Plan</span>
+            <span data-ch="2" role="tab" aria-selected="false"><b>03</b> Now</span>
+            <span data-ch="3" role="tab" aria-selected="false"><b>04</b> Finish</span>
+          </div>
+          <div class="film__track"><i id="filmBar"></i></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Manifesto ────────────────────────────────────────────── -->
+    <section class="manifesto" aria-label="The idea">
+      <div class="manifesto__inner">
+        <div class="manifesto__label">( The idea )</div>
+        <p class="manifesto__text" id="manifestoText">
+          Most planners hand you a list and call it a plan. Cadence gives you back
+          the day itself — a <em>finite</em>, visible, honest shape. Place what
+          matters, then stop negotiating with the clock and start
+          <em>living</em> inside it.
+        </p>
+      </div>
+    </section>
+
+    <!-- ── How it works ─────────────────────────────────────────── -->
+    <section class="how" id="how">
+      <div class="how__inner">
+        <div class="section-head reveal">
+          <div>
+            <span class="eyebrow">How it works</span>
+            <h2>Three moves.<br>No <em>ceremony.</em></h2>
+          </div>
+          <p>
+            A plan you can read in a second, and a clock that only ever asks for
+            the next block. Nothing to configure, nothing to maintain.
+          </p>
+        </div>
+
+        <div class="how__rows">
+          <article class="how__row reveal">
+            <span class="how__num">01</span>
+            <h3 class="how__title">Paint the day.</h3>
+            <p class="how__desc">
+              A full 24-hour grid, one drag at a time. Name a block, give it a
+              length, put it where it belongs. Import a timetable if you already
+              have one.
+            </p>
+            <div class="how__viz" aria-hidden="true">
+              <svg viewBox="0 0 190 74" fill="none">
+                <rect x="0.5" y="0.5" width="189" height="73" stroke="currentColor" stroke-opacity="0.18"/>
+                <path d="M47.5 1v72M94.5 1v72M141.5 1v72" stroke="currentColor" stroke-opacity="0.1"/>
+                <path d="M1 25h188M1 49h188" stroke="currentColor" stroke-opacity="0.1"/>
+                <rect x="8" y="7" width="34" height="14" fill="currentColor"/>
+                <rect x="55" y="31" width="72" height="14" fill="currentColor" fill-opacity="0.28" stroke="currentColor" stroke-opacity="0.5"/>
+                <rect x="102" y="55" width="55" height="13" fill="currentColor" fill-opacity="0.6"/>
+                <rect x="150" y="7" width="33" height="38" fill="currentColor" fill-opacity="0.14" stroke="currentColor" stroke-opacity="0.35"/>
+              </svg>
             </div>
-            <div class="preview__row">
-              <span class="preview__time">09:30</span>
-              <span class="preview__track">
-                <span class="preview__block" style="left:20%;width:46%;--tone:#FFFFFF"></span>
-              </span>
+          </article>
+
+          <article class="how__row reveal" style="--d:.06s">
+            <span class="how__num">02</span>
+            <h3 class="how__title">Follow the clock.</h3>
+            <p class="how__desc">
+              Start the timer and the page becomes one block, one countdown, one
+              decision. When it ends, the next block is already waiting.
+            </p>
+            <div class="how__viz" aria-hidden="true">
+              <svg viewBox="0 0 190 74" fill="none">
+                <circle cx="95" cy="37" r="28" stroke="currentColor" stroke-opacity="0.2"/>
+                <circle cx="95" cy="37" r="28" stroke="currentColor" stroke-width="2"
+                        stroke-dasharray="126 50" stroke-linecap="round" transform="rotate(-90 95 37)"/>
+                <circle cx="95" cy="37" r="2.5" fill="currentColor"/>
+                <path d="M95 37V21" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                <path d="M12 37h30M148 37h30" stroke="currentColor" stroke-opacity="0.25"/>
+                <path d="M12 30v14M178 30v14" stroke="currentColor" stroke-opacity="0.25"/>
+              </svg>
             </div>
-            <div class="preview__row">
-              <span class="preview__time">12:30</span>
-              <span class="preview__track">
-                <span class="preview__block" style="left:66%;width:14%;--tone:#3C3C3C"></span>
-              </span>
+          </article>
+
+          <article class="how__row reveal" style="--d:.12s">
+            <span class="how__num">03</span>
+            <h3 class="how__title">Keep the record.</h3>
+            <p class="how__desc">
+              At the end the grid is no longer a plan. It's a record of what you
+              actually did — ready to print, export, or keep for tomorrow.
+            </p>
+            <div class="how__viz" aria-hidden="true">
+              <svg viewBox="0 0 190 74" fill="none">
+                <rect x="8" y="12" width="30" height="12" fill="currentColor" fill-opacity="0.85"/>
+                <rect x="8" y="31" width="62" height="12" fill="currentColor" fill-opacity="0.45"/>
+                <rect x="8" y="50" width="44" height="12" fill="currentColor" fill-opacity="0.22"/>
+                <path d="M132 22l8 8 18-20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M120 52h40" stroke="currentColor" stroke-opacity="0.25"/>
+              </svg>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Features ─────────────────────────────────────────────── -->
+    <section class="features" id="features">
+      <div class="features__inner">
+        <div class="section-head reveal">
+          <div>
+            <span class="eyebrow">Built for focus</span>
+            <h2>Less interface.<br>More <em>day.</em></h2>
+          </div>
+          <p>
+            Every part of Cadence exists to get you back to the work. There is no
+            feed, no streak, no gamified guilt — just the day and the clock.
+          </p>
+        </div>
+
+        <div class="bento">
+          <article class="cell cell--wide reveal">
+            <div class="cell__top">
+              <span class="cell__index">01 / One view</span>
+              <svg class="cell__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="16" rx="1"/>
+                <path d="M3 9h18M9 9v11M15 9v11"/>
+              </svg>
+            </div>
+            <div class="cell__body">
+              <h3>Your whole day.<br>One page.</h3>
+              <p>Not a running list that hides the shape of your time. See all 24 hours at once, before you live them.</p>
+            </div>
+            <div class="cell__art" aria-hidden="true">
+              <i style="height:34%"></i><i style="height:62%"></i><i style="height:88%"></i>
+              <i style="height:48%"></i><i style="height:74%"></i><i style="height:30%"></i>
+              <i style="height:58%"></i><i style="height:94%"></i><i style="height:66%"></i>
+              <i style="height:42%"></i><i style="height:80%"></i><i style="height:52%"></i>
+              <i style="height:90%"></i><i style="height:36%"></i><i style="height:70%"></i>
+              <i style="height:56%"></i><i style="height:84%"></i><i style="height:44%"></i>
+              <i style="height:64%"></i><i style="height:32%"></i><i style="height:76%"></i>
+              <i style="height:50%"></i><i style="height:88%"></i><i style="height:60%"></i>
+            </div>
+          </article>
+
+          <article class="cell cell--side reveal" style="--d:.05s">
+            <div class="cell__top">
+              <span class="cell__index">02 / One thing</span>
+              <svg class="cell__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"/>
+                <path d="M12 7v5l3 2"/>
+              </svg>
+            </div>
+            <div class="cell__body">
+              <h3>One thing now.</h3>
+              <p>The timer strips the day down to the block you're in and the time that's left.</p>
+            </div>
+            <span class="cell__ring" aria-hidden="true"></span>
+          </article>
+
+          <article class="cell cell--third reveal">
+            <div class="cell__top">
+              <span class="cell__index">03 / Offline</span>
+              <svg class="cell__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 12.5a7 7 0 0 1 14 0"/>
+                <path d="M8.5 15.5a3.5 3.5 0 0 1 7 0"/>
+                <circle cx="12" cy="18.5" r=".8" fill="currentColor"/>
+              </svg>
+            </div>
+            <div class="cell__body">
+              <h3>Offline by design.</h3>
+              <p>A local service worker means it opens instantly with no network and no spinner.</p>
+            </div>
+          </article>
+
+          <article class="cell cell--third reveal" style="--d:.05s">
+            <div class="cell__top">
+              <span class="cell__index">04 / Portability</span>
+              <svg class="cell__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3v12M8 11l4 4 4-4"/>
+                <path d="M4 17v3h16v-3"/>
+              </svg>
+            </div>
+            <div class="cell__body">
+              <h3>Yours to move.</h3>
+              <p>Import a timetable, export your data, print the day. Nothing is locked in.</p>
+            </div>
+          </article>
+
+          <article class="cell cell--third reveal" style="--d:.1s">
+            <div class="cell__top">
+              <span class="cell__index">05 / Quiet</span>
+              <svg class="cell__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 9v6h4l5 4V5L8 9H4z"/>
+                <path d="M17 9l4 6M21 9l-4 6"/>
+              </svg>
+            </div>
+            <div class="cell__body">
+              <h3>Quiet by default.</h3>
+              <p>No analytics, no trackers, no notifications shouting for attention.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── A day, by Cadence ────────────────────────────────────── -->
+    <section class="day" id="day">
+      <div class="day__inner">
+        <div class="section-head reveal">
+          <div>
+            <span class="eyebrow">A Tuesday, by Cadence</span>
+            <h2>10:04.<br>One <em>thing.</em></h2>
+          </div>
+          <p>
+            Deep work until 10:30. The rest of the day is already placed — you
+            don't have to hold any of it in your head.
+          </p>
+        </div>
+
+        <div class="day__board reveal">
+          <div class="day__meta">
+            <span>Tue · 24 Oct</span>
+            <span>06:00 → 24:00</span>
+            <span class="day__nowlabel">Now · 10:04</span>
+          </div>
+          <div class="day__grid" id="dayGrid">
+            <div class="day__col">
+              <div class="day__colheader">
+                <span class="day__coltitle">Morning • Afternoon</span>
+                <span class="day__colrange">12 AM — 12 PM</span>
+              </div>
+              <div class="day__body">
+                <div class="day__gutter" id="dayGutter0" aria-hidden="true"></div>
+                <div class="day__track" id="dayTrack0" role="img" aria-label="Morning and afternoon blocks"></div>
+              </div>
+            </div>
+            <div class="day__col">
+              <div class="day__colheader">
+                <span class="day__coltitle">Evening • Night</span>
+                <span class="day__colrange">12 PM — 12 AM</span>
+              </div>
+              <div class="day__body">
+                <div class="day__gutter" id="dayGutter1" aria-hidden="true"></div>
+                <div class="day__track" id="dayTrack1" role="img" aria-label="Evening and night blocks"></div>
+              </div>
             </div>
           </div>
         </div>
-      </article>
+      </div>
+    </section>
 
-      <article class="feature" id="clock">
-        <h3 class="feature__title">Do</h3>
-        <p class="feature__body">
-          The timer follows your plan. It shows you what's up right now, counts down, and moves to the next thing when it's done. Just press start and go.
-        </p>
-        <ul class="feature__list">
-          <li>Always know what's next</li>
-          <li>Runs the day for you if you want</li>
-          <li>Gently nudges you when time's up</li>
-          <li>See your wins for the week</li>
-        </ul>
-        <div class="feature__art">
-          <div class="preview__dial" style="margin-top:0">
-            <svg class="preview__ring" viewBox="0 0 100 100">
-              <circle cx="50" cy="50" r="42" fill="none" stroke="var(--surface-2)" stroke-width="7"/>
-              <circle cx="50" cy="50" r="42" fill="none" stroke="var(--text)" stroke-width="7"
-                      stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="150"
-                      transform="rotate(-90 50 50)"/>
-            </svg>
-            <div class="preview__readout">
-              <div class="preview__time-big">25:00</div>
-              <div class="preview__note">Self study · until 10:30 AM</div>
-            </div>
+    <!-- ── Privacy ──────────────────────────────────────────────── -->
+    <section class="privacy" id="privacy">
+      <div class="privacy__inner">
+        <div>
+          <span class="eyebrow">Private by default</span>
+          <h2>Your day stays<br>on your <em>device.</em></h2>
+          <p class="privacy__copy">
+            There is no account to make and no server to trust. Cadence keeps
+            everything in your browser's local storage — open it on a plane, in a
+            basement, or with the Wi-Fi off.
+          </p>
+
+          <div class="stats">
+            <div class="stat"><b>0</b><span>Accounts</span></div>
+            <div class="stat"><b>0</b><span>Trackers</span></div>
+            <div class="stat"><b>100%</b><span>Local</span></div>
           </div>
         </div>
-      </article>
-    </div>
-  </section>
 
-  <!-- ══════════ How it works ══════════ -->
-  <section class="wrap section" id="how">
-    <div class="section__head">
-      <p class="section__kicker">How it works</p>
-      <h2>Three quick steps</h2>
-    </div>
-
-    <div class="steps">
-      <div class="step">
-        <span class="step__num">01</span>
-        <h3 class="step__title">Plan</h3>
-        <p class="step__body">
-          Pick what matters today. Drag it onto the grid and build your day in seconds.
-        </p>
-      </div>
-      <div class="step">
-        <span class="step__num">02</span>
-        <h3 class="step__title">Follow</h3>
-        <p class="step__body">
-          Open the timer and do what's next. One thing at a time, no overwhelm.
-        </p>
-      </div>
-      <div class="step">
-        <span class="step__num">03</span>
-        <h3 class="step__title">Finish</h3>
-        <p class="step__body">
-          Keep going, one block at a time. At the end, see how much you actually got done.
-        </p>
-      </div>
-    </div>
-  </section>
-
-  <!-- ══════════ Local ══════════ -->
-  <section class="wrap section" id="local">
-    <div class="section__head">
-      <p class="section__kicker">Private by default</p>
-      <h2>Your day stays yours</h2>
-      <p class="section__lede">
-        No account. No tracking. Everything stays right here on your device. Works even with no internet.
-      </p>
-    </div>
-
-    <div class="local">
-      <div class="local__item">
-        <span class="local__mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 3v9"/><path d="m8 8 4 4 4-4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>
+        <div class="privacy__panel reveal">
+          <svg class="privacy__lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="4" y="10" width="16" height="11" rx="1"/>
+            <path d="M8 10V7a4 4 0 0 1 8 0v3"/>
+            <circle cx="12" cy="15.5" r="1.2" fill="currentColor"/>
+            <path d="M12 16.7V18"/>
           </svg>
-        </span>
-        <div>
-          <p class="local__title">Works offline</p>
-          <p class="local__body">
-            No internet? No problem. It keeps working wherever you are.
-          </p>
+
+          <ul class="privacy__list">
+            <li><span>Storage</span><span>On this device</span></li>
+            <li><span>Account</span><span>None required</span></li>
+            <li><span>Network</span><span>Not needed</span></li>
+            <li><span>Analytics</span><span>None</span></li>
+            <li><span>Export</span><span>JSON, PDF, print</span></li>
+            <li><span>Delete</span><span>One tap, everything</span></li>
+          </ul>
+
+          <p class="privacy__note">No cloud. No sync. No server to trust.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Final CTA ────────────────────────────────────────────── -->
+    <section class="cta" id="start">
+      <div class="cta__marquee" aria-hidden="true">
+        <div class="cta__track">
+          <div class="cta__group">
+            <span>Plan the day — <em>run</em> the day —&nbsp;</span>
+            <span>Plan the day — <em>run</em> the day —&nbsp;</span>
+            <span>Plan the day — <em>run</em> the day —&nbsp;</span>
+          </div>
+          <div class="cta__group">
+            <span>Plan the day — <em>run</em> the day —&nbsp;</span>
+            <span>Plan the day — <em>run</em> the day —&nbsp;</span>
+            <span>Plan the day — <em>run</em> the day —&nbsp;</span>
+          </div>
         </div>
       </div>
 
-      <div class="local__item">
-        <span class="local__mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>
-          </svg>
-        </span>
-        <div>
-          <p class="local__title">No account</p>
-          <p class="local__body">
-            Just open and start. Nothing to sign up for.
-          </p>
-        </div>
-      </div>
-
-      <div class="local__item">
-        <span class="local__mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
-          </svg>
-        </span>
-        <div>
-          <p class="local__title">On track</p>
-          <p class="local__body">
-            The timer stays accurate even if you switch tabs or your screen sleeps.
-          </p>
-        </div>
-      </div>
-
-      <div class="local__item">
-        <span class="local__mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/>
-          </svg>
-        </span>
-        <div>
-          <p class="local__title">Export anytime</p>
-          <p class="local__body">
-            Save your plan as JSON. Clear it anytime with one click.
-          </p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ══════════ Closing call to action ══════════ -->
-  <section class="wrap section">
-    <div class="cta">
-      <div class="cta__bg">
-        <div class="cta__orb cta__orb--1"></div>
-        <div class="cta__orb cta__orb--2"></div>
-      </div>
-      <div class="cta__content">
-        <h2>Stop listing.<br><span class="gradient-text">Start doing.</span></h2>
-        <p>
-          Plan your day in minutes. Follow along, one thing at a time. See real progress by the end of the day.
-        </p>
+      <div class="cta__body">
+        <h2>Start with<br>one <em>block.</em></h2>
+        <p>Today is already here. Give it a shape — and let the clock carry the rest.</p>
         <div class="cta__actions">
-          <a class="btn btn--primary btn--glow" href="./plan.html">
-            <span>Build your day now</span>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          <a class="btn btn--dark btn--lg" href="./plan.html">
+            Open the planner
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14M13 6l6 6-6 6"/>
+            </svg>
           </a>
-          <a class="btn btn--soft btn--glass" href="./clock.html">Try the timer</a>
+          <a class="btn btn--outline-dark btn--lg" href="./clock.html">Start the clock</a>
+        </div>
+        <p class="cta__note">Free · Offline · No account</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ── Footer ─────────────────────────────────────────────────── -->
+  <footer class="footer">
+    <div class="footer__inner">
+      <div class="footer__top">
+        <div>
+          <div class="footer__brand">
+            <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+              <circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="1.8"/>
+              <path d="M16 16 L19.4 10.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <circle cx="16" cy="16" r="1.6" fill="currentColor"/>
+            </svg>
+            <span>CADENCE</span>
+          </div>
+          <p class="footer__tagline">A quiet place to put the day, then live it.</p>
+        </div>
+
+        <div class="footer__col">
+          <h4>Use</h4>
+          <ul>
+            <li><a href="./plan.html">Planner</a></li>
+            <li><a href="./clock.html">The clock</a></li>
+            <li><a href="#how">How it works</a></li>
+          </ul>
+        </div>
+
+        <div class="footer__col">
+          <h4>Read</h4>
+          <ul>
+            <li><a href="#privacy">Privacy</a></li>
+            <li><a href="#day">A day</a></li>
+            <li><a href="#top">Back to top</a></li>
+          </ul>
         </div>
       </div>
-    </div>
-  </section>
-</main>
 
-<footer class="footer">
-  <div class="wrap" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
-    <span>Cadence <span id="landingVersion">1.0.0</span></span>
-    <div class="footer__links">
-      <a href="./plan.html">Plan</a>
-      <a href="./clock.html">Do</a>
-      <a href="./index.html">Home</a>
-      <a href="./manifest.webmanifest">Manifest</a>
+      <div class="footer__bottom">
+        <span>© <span id="year">2026</span> Cadence</span>
+        <span><i aria-hidden="true"></i>Made for one thing at a time</span>
+        <span>No cookies · No cloud</span>
+      </div>
     </div>
-  </div>
-</footer>
+  </footer>
 
-<script src="./assets/vendor/lenis.min.js" defer></script>
-<script type="module" src="./assets/js/landing.js"></script>
+  <script>
+    document.getElementById('year').textContent = String(new Date().getFullYear());
+  </script>
+  <script src="./assets/vendor/lenis.min.js" defer></script>
+  <script src="./assets/js/landing-experience.js" defer></script>
 </body>
 </html>
