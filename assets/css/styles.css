@@ -3354,31 +3354,31 @@ body.landing { background: var(--bg); }
     padding-bottom: 1px;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
-    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 12px), transparent 100%);
-    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 12px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 6px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 6px), transparent 100%);
   }
   .picker::-webkit-scrollbar { display: none; }
   .pick {
     flex: none;
-    gap: 5px;
-    padding: 6px 8px 6px 7px;
-    font-size: 11px;
+    gap: 4px;
+    padding: 6px 7px 6px 6px;
+    font-size: 10.5px;
     border-radius: 8px;
   }
-  .pick__dot { width: 7px; height: 7px; }
+  .pick__dot { width: 6px; height: 6px; }
   /* The tool pair: erase and add, sized like buttons rather than chips. */
   .toolbar__tools { gap: 3px; }
   .toolbar__erase .pick {
     height: 30px;
-    padding: 0 9px 0 7px;
-    gap: 5px;
+    padding: 0 7px 0 6px;
+    gap: 4px;
     font-size: 10.5px;
     border-radius: 8px;
   }
   #planAddActivity {
     flex: none;
     height: 30px;
-    padding: 0 9px 0 10px;
+    padding: 0 8px;
     gap: 3px;
     font-size: 10.5px;
     border: 0;
@@ -3536,6 +3536,10 @@ body.landing { background: var(--bg); }
   .weekday__name { font-size: 7px; }
   .weekday__num { font-size: 12px; }
   .plan__quickbar .btn { font-size: 10px; padding: 0 2px; }
+  /* On the smallest phones the tool label gives way to the plus, so the
+     three first activities stay whole. */
+  #planAddActivity { width: 30px; padding: 0; justify-content: center; }
+  #planAddActivity .btn__label { display: none; }
   body.planpage { --slot-h: 12px; }
   .grid { gap: 6px; }
   .grid__gutter { width: 19px; }
