@@ -13,18 +13,18 @@
 
 import { sound } from './audio.js';
 import {
-  DEFAULTS, load, save, saveNow, clearStore,
+  DEFAULTS, load, save, saveNow, saveKeys, saveKeysNow, clearStore,
   addSession, updateSession, removeSession, recentSessions, computeStats,
   closeOrphanSessions, isoDateInput, uid, getPlan, setPlan,
-  savePlanForTimer, removeSavedPlan,
-  sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities,
+  removeSavedPlan,
+  sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities, sanitizeSavedPlans,
 } from './store.js';
 import { importTimetable as importTimetableFile, importErrorMessage } from './timetable-import.js';
 import {
-  blockAt, nextBlock, planSummary, dayProgress,
+  blockAt, planSummary, dayProgress,
 } from './plan.js';
 import {
-  clamp, pad2, dateKey, shiftKey, startOfDayKey, minutesOfDay, clockLabel, labelDate,
+  clamp, pad2, dateKey, startOfDayKey, minutesOfDay, clockLabel, labelDate,
 } from './util.js';
 import { applyTheme } from './theme.js';
 import { readRuntime, writeRuntime, clearRuntime } from './runtime.js';
@@ -38,7 +38,7 @@ const RING_R = 118;
 const RING_CX = 130;
 const RING_CY = 130;
 
-const APP_VERSION = '1.0.0';    // keep in step with sw.js VERSION
+const APP_VERSION = '1.5.0';    // keep in step with sw.js VERSION
 
 const QUICK_DURATIONS = [5, 15, 25, 30, 45, 50, 60, 90];
 
@@ -320,7 +320,9 @@ function syncLiveSession(force = false) {
   if (!force && now - lastLiveSync < 5000) return;
   lastLiveSync = now;
   updateSession(state, liveSessionId, { durationMs: Math.round(elapsedMs()) });
-  if (force) saveNow(state);
+  // Scoped flush: a full-state write here would roll back whatever the plan
+  // tab changed while this one sat in the background.
+  if (force) saveKeysNow(state, ['sessions', 'counters']);
 }
 
 /** Close the live session with its final length. */
@@ -403,8 +405,10 @@ function start(opts = {}) {
     T.target = opts.target;
     T.accumulated = 0;
   } else if (T.mode === 'timer' && T.status === 'idle') {
+    // The long break comes around on the *focus* counter — finishSession()
+    // counts completed focus sessions, so this must read the same counter.
     T.target = (T.kind === 'break'
-      ? (state.counters.break % state.settings.longBreakEvery === 0 && state.counters.focus > 0
+      ? (state.counters.focus > 0 && state.counters.focus % Math.max(1, state.settings.longBreakEvery) === 0
           ? state.settings.longBreakMin : state.settings.breakMin)
       : state.settings.focusMin) * 60000;
     T.accumulated = 0;
@@ -487,6 +491,8 @@ function stop() {
   } else {
     // Too short to count as a session — it is removed again.
     closeLiveSession(0);
+    // A break that was abandoned must not make the next Start another break.
+    T.kind = 'focus';
     sound.play('reset');
   }
   render();
@@ -534,7 +540,7 @@ function finishSession(kind, durationMs, opts = {}) {
 
   state.counters[kind] = (state.counters[kind] || 0) + 1;
   if (sessionId) markBlockDone(sessionId);
-  save(state);
+  saveKeys(state, ['counters']);
   stats = computeStats(state);
   renderToday();
   renderStats();
@@ -574,6 +580,9 @@ function finishSession(kind, durationMs, opts = {}) {
     T.accumulated = 0;
     T.startedAt = Date.now();
     T.status = 'running';
+    // A chained focus session must get its live row straight away, same as
+    // one started by hand — breaks are rest and are skipped inside.
+    beginLiveSession();
     persistRuntime();
     scheduleTimeout();
     requestWakeLock();
@@ -874,7 +883,7 @@ function markBlockDone(id) {
     if (!plan.blocks.some(b => b.id === id)) continue;
     plan.done = plan.done || {};
     plan.done[id] = true;
-    save(state);
+    saveKeysNow(state, ['plans']);
     return;
   }
 }
@@ -1123,7 +1132,6 @@ function renderPlanPanel() {
     row.append(time, subject, dur);
     el.ttList.appendChild(row);
   }
-  void now;
   renderActivityList();
 }
 
@@ -1806,7 +1814,6 @@ function bindSettings() {
     const keepActivities = state.activities;
     const keepMode = T.mode;
     const keepTheme = state.settings.theme;
-    const keepView = state.settings.view;
     state = structuredClone(DEFAULTS);
     state.sessions = keepSessions;
     state.settings.customPresets = keepPresets;
@@ -1814,7 +1821,6 @@ function bindSettings() {
     state.activities = keepActivities;
     state.settings.mode = keepMode;
     state.settings.theme = keepTheme;
-    state.settings.view = keepView;
     state.counters = { focus: 0, break: 0 };
     saveNow(state);
     sound.setTheme(state.settings.soundTheme);
@@ -2038,7 +2044,15 @@ function exportData() {
 function importData(event) {
   const file = event.target.files?.[0];
   if (!file) return;
+  if (!window.confirm('Import this file? It will replace all Cadence data on this device (sessions, plans, settings).')) {
+    event.target.value = '';
+    return;
+  }
   const reader = new FileReader();
+  reader.onerror = () => {
+    showToast('That file could not be read');
+    event.target.value = '';
+  };
   reader.onload = () => {
     try {
       const parsed = JSON.parse(String(reader.result));
@@ -2054,6 +2068,7 @@ function importData(event) {
       };
       state.plans = sanitizePlans(parsed.plans);
       state.activities = sanitizeActivities(parsed.activities);
+      if (Array.isArray(parsed.saved)) state.saved = sanitizeSavedPlans(parsed.saved);
       state.settings.mode = T.mode;
       saveNow(state);
       sound.setTheme(state.settings.soundTheme);
@@ -2366,6 +2381,10 @@ function bindEvents() {
   window.addEventListener('pagehide', () => {
     persistRuntime();
     syncLiveSession(true);
+    // The session writes are debounced — a tab closed within 120 ms of a
+    // change must not lose it. Scoped write: everything else stays as the
+    // disk already holds it.
+    saveKeysNow(state, ['sessions', 'counters']);
   });
 
   // Install prompt
@@ -2373,7 +2392,6 @@ function bindEvents() {
     e.preventDefault();
     deferredInstall = e;
     $('installBtn').hidden = false;
-    $('installLandingBtn')?.removeAttribute('hidden');
   });
   $('installBtn').addEventListener('click', async () => {
     if (!deferredInstall) return;
@@ -2391,6 +2409,8 @@ function bindEvents() {
 /* ── keyboard ────────────────────────────────────────────── */
 
 function onKeyDown(e) {
+  // Modifier combos belong to the browser (Ctrl+C, Ctrl+R, Ctrl+P, Cmd+Tab…).
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
   const tag = (e.target.tagName || '').toLowerCase();
   const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
   // A focused button keeps its own Space activation.

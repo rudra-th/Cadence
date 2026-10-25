@@ -2,7 +2,7 @@
   "name": "Cadence — Plan the day, run the day",
   "short_name": "Cadence",
   "description": "An offline-first study workspace. Paint your day onto a 24-hour grid and let the clock run it, block by block.",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "id": "./",
   "start_url": "./clock.html?source=pwa",
   "scope": "./",

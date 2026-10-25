@@ -32,6 +32,18 @@
   <link rel="preload" href="./assets/fonts/instrument-serif-italic-latin.woff2" as="font" type="font/woff2" crossorigin>
 
   <link rel="stylesheet" href="./assets/css/landing-experience.css">
+
+  <!-- Without JavaScript the boot film can never end — show the page instead. -->
+  <noscript>
+    <style>
+      .boot { display: none !important; }
+      body.is-ready .hero__title .l > span,
+      .hero__title .l > span { transform: none !important; }
+      .fade-up { opacity: 1 !important; transform: none !important; }
+      .reveal { opacity: 1 !important; transform: none !important; }
+      .cursor { display: none !important; }
+    </style>
+  </noscript>
 </head>
 <body>
 

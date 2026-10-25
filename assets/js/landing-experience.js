@@ -108,6 +108,11 @@
 
   const navEl = $('#nav');
   const pageBar = $('#pageProgress');
+  let pageMax = 1;
+
+  function measurePage() {
+    pageMax = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+  }
 
   function paintScrollUI() {
     const y = window.scrollY || window.pageYOffset;
@@ -115,8 +120,12 @@
     if (navEl) navEl.classList.toggle('is-scrolled', y > 28);
 
     if (pageBar) {
-      const max = document.documentElement.scrollHeight - window.innerHeight;
-      pageBar.style.transform = `scaleX(${max > 0 ? clamp(y / max, 0, 1) : 0})`;
+      const scale = clamp(y / pageMax, 0, 1);
+      // One float write per scroll step is plenty — an unchanged value is skipped.
+      if (pageBar._scale === undefined || Math.abs(scale - pageBar._scale) > 0.0005) {
+        pageBar._scale = scale;
+        pageBar.style.transform = `scaleX(${scale})`;
+      }
     }
   }
 
@@ -925,6 +934,8 @@
 
   let manifestoWords = [];
   let manifestoEl = null;
+  /** Last painted grey step per word, so the loop never writes the same value twice. */
+  let manifestoPainted = null;
 
   function splitWords(root) {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -960,6 +971,7 @@
     manifestoEl = $('#manifestoText');
     if (!manifestoEl) return;
     manifestoWords = splitWords(manifestoEl);
+    manifestoPainted = null;
     manifestoWords.forEach((w) => { w.style.color = '#757575'; w.style.opacity = '1'; });
     if (reduceMotion) manifestoWords.forEach((w) => { w.style.color = '#bfbfbf'; w.style.opacity = '1'; });
   }
@@ -976,11 +988,18 @@
     const progress = clamp(travelled / total, 0, 1);
     const lit = progress * manifestoWords.length * 1.18;
 
-    manifestoWords.forEach((word, i) => {
+    if (!manifestoPainted || manifestoPainted.length !== manifestoWords.length) {
+      manifestoPainted = new Int8Array(manifestoWords.length).fill(-1);
+    }
+    for (let i = 0; i < manifestoWords.length; i++) {
       const v = clamp((lit - i) / 2.6, 0, 1);
+      // The colour is a single 0..255 grey step — writing only what changed
+      // keeps the loop from restamping every word while the page stands still.
       const c = Math.round(117 + v * 138);
-      word.style.color = `rgb(${c}, ${c}, ${c})`;
-    });
+      if (manifestoPainted[i] === c) continue;
+      manifestoPainted[i] = c;
+      manifestoWords[i].style.color = `rgb(${c}, ${c}, ${c})`;
+    }
   }
 
   /* ──────────────────────────────────────────────────────────────
@@ -1092,22 +1111,29 @@
 
   function initFrameLoop() {
     const dial = $('#heroDial');
-    const grain = $('.grain');
+    let lastDial = '';
+    let lastY = -1;
 
     const loop = () => {
       const y = window.scrollY || window.pageYOffset;
 
       if (dial) {
         const shift = Math.min(y, window.innerHeight * 1.4);
-        dial.style.transform = `translate3d(0, ${shift * 0.1}px, 0) rotate(${shift * 0.012}deg)`;
+        const next = `translate3d(0, ${(shift * 0.1).toFixed(2)}px, 0) rotate(${(shift * 0.012).toFixed(3)}deg)`;
+        if (next !== lastDial) {
+          lastDial = next;
+          dial.style.transform = next;
+        }
       }
 
-      if (grain && !reduceMotion) {
-        grain.style.transform = `translate3d(${Math.sin(y * 0.006) * 8}px, ${Math.cos(y * 0.004) * 8}px, 0)`;
-      }
+      // The grain node is animated by its own CSS keyframe loop — writing a
+      // transform here would be overridden every step, so it stays untouched.
 
-      paintManifesto();
-      paintScrollUI();
+      if (y !== lastY) {
+        lastY = y;
+        paintManifesto();
+        paintScrollUI();
+      }
 
       requestAnimationFrame(loop);
     };
@@ -1115,6 +1141,7 @@
     requestAnimationFrame(loop);
 
     window.addEventListener('resize', () => {
+      measurePage();
       paintScrollUI();
       paintManifesto();
     }, { passive: true });
@@ -1135,6 +1162,7 @@
     initReveals();
     initDay();
     initFrameLoop();
+    measurePage();
     paintScrollUI();
   }
 

@@ -16,7 +16,10 @@
  * support LZW/DJB/JBIG2 filters. Anything it cannot read, it skips.
  */
 
-const OBJ_RE = /(?<![0-9])(\d+)\s+(\d+)\s+obj\b/g;
+// Lookbehind-free on purpose: `(?<!...)` throws a SyntaxError at compile time
+// on older Safari and takes the whole module graph down. The leading character
+// is consumed into the match instead; group 1 accounts for it.
+const OBJ_RE = /(^|[^0-9])(\d+)\s+(\d+)\s+obj\b/g;
 const STREAM_RE = /stream\r\n|stream\r|stream\n/;
 
 const TOKEN_RE = new RegExp(
@@ -80,7 +83,7 @@ function indexObjects(raw) {
   OBJ_RE.lastIndex = 0;
   let m;
   while ((m = OBJ_RE.exec(raw)) !== null) {
-    const num = Number(m[1]);
+    const num = Number(m[2]);
     const start = m.index + m[0].length;
     const endIdx = raw.indexOf('endobj', start);
     map.set(num, { start, end: endIdx === -1 ? raw.length : endIdx });

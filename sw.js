@@ -13,7 +13,7 @@
  *    revalidate) — instant loads, quiet updates.
  */
 
-const VERSION = 'v1.4.1';
+const VERSION = 'v1.5.0';
 const CACHE = `cadence-${VERSION}`;
 
 const SHELL = [
@@ -35,7 +35,6 @@ const SHELL = [
   './assets/js/runtime.js',
   './assets/js/timetable-import.js',
   './assets/js/printplan.js',
-  './assets/js/landing.js',
   './assets/js/store.js',
   './assets/js/plan.js',
   './assets/js/theme.js',

@@ -23,7 +23,8 @@
  */
 
 const RANGE_RE = /(\d{1,2}):(\d{2})\s*([AP])\s*M\s*[-–—]+\s*(\d{1,2}):(\d{2})\s*([AP])\s*M/i;
-const RANGE_24_RE = /(?<![\d:])(\d{1,2}):(\d{2})\s*[-–—]+\s*(\d{1,2}):(\d{2})(?![\d:])/;
+// Same no-lookbehind policy as OBJ_RE in pdf.js.
+const RANGE_24_RE = /(^|[^0-9:])(\d{1,2}):(\d{2})\s*[-–—]+\s*(\d{1,2}):(\d{2})/;
 const DATE_RE = /^([A-Za-z]+day),?\s+(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/i;
 const BREAK_RE = /\b(break|sleep|rest|lunch|meal|recess|nap|tea)\b/i;
 
@@ -238,10 +239,10 @@ export function parseGenericSchedule(pages) {
     } else {
       const plain = RANGE_24_RE.exec(first);
       if (plain) {
-        const h1 = Number(plain[1]);
-        const m1 = Number(plain[2]);
-        const h2 = Number(plain[3]);
-        const m2 = Number(plain[4]);
+        const h1 = Number(plain[2]);
+        const m1 = Number(plain[3]);
+        const h2 = Number(plain[4]);
+        const m2 = Number(plain[5]);
         if (h1 < 24 && h2 < 24 && m1 < 60 && m2 < 60) {
           startMin = h1 * 60 + m1;
           endMin = h2 * 60 + m2;

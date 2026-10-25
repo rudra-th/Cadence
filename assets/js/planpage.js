@@ -12,7 +12,7 @@
  * your own work never leaves a seam behind.
  */
 
-import { load, save, saveNow, getPlan, setPlan, savePlanForTimer, sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities, sanitizeSavedPlans } from './store.js';
+import { load, saveNow, saveKeys, saveKeysNow, persistFailed, getPlan, setPlan, savePlanForTimer, sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities, sanitizeSavedPlans } from './store.js';
 import {
   SLOT_MIN, DAY_MIN, activityMap, toneOf, ACTIVITIES,
   paintRange, removeBlock, mergeBlocks, moveBlock, resizeBlockTo,
@@ -53,7 +53,6 @@ const el = {
   planToday: $('planToday'),
   planTitle: $('planTitle'),
   planSub: $('planSub'),
-  planHeaderStats: $('planHeaderStats'),
   planWeekStats: $('planWeekStats'),
   planWeek: $('planWeek'),
   planGrid: $('planGrid'),
@@ -212,7 +211,8 @@ function planPayloadFromText(text) {
   if (m) {
     try {
       const parsed = JSON.parse(fromBase64(m[1]));
-      if (parsed.plan) return parsed;
+      // Version guard: a v2 payload should fail loudly, not sanitise as v1.
+      if (parsed.plan && (parsed.v == null || parsed.v === 1)) return parsed;
     } catch { /* fall through */ }
   }
   // 2) tagged raw JSON — older "Download PDF" exports
@@ -344,9 +344,15 @@ function redo() {
  * last few seconds of painting on the floor.
  */
 function commit() {
+  // setPlan writes the plan key immediately and merges the rest of the store
+  // from the disk — a full-state write here would roll live timer sessions
+  // back to the moment this tab was opened.
   setPlan(state, currentDate, current);
-  saveNow(state);
-  flashSaved();
+  if (persistFailed()) {
+    showToast('Could not save — storage is full or blocked');
+  } else {
+    flashSaved();
+  }
   render();
 }
 
@@ -511,13 +517,22 @@ async function downloadPdf() {
   syncPrintControls();
   renderPrintPreview();
   delete el.printDialog.dataset.pdfGo;
-  el.printDialog.dataset.pdf = '1';
   const go = el.printGo;
   const oldLabel = go?.textContent;
   if (go) go.textContent = 'Download';
+  let opened = true;
   try {
     if (!el.printDialog.open) el.printDialog.showModal();
-  } catch {}
+  } catch {
+    // Another dialog is already showing — the label comes back on the next
+    // open, rather than leaving a pending close listener behind.
+    opened = false;
+  }
+  if (!opened) {
+    if (go) go.textContent = oldLabel || 'Print';
+    return;
+  }
+  el.printDialog.dataset.pdf = '1';
   const onClose = async () => {
     const confirmed = el.printDialog?.dataset.pdfGo === '1';
     delete el.printDialog.dataset.pdf;
@@ -530,17 +545,33 @@ async function downloadPdf() {
 
 /** Load the two rendering libraries only when a PDF is actually requested. */
 function loadScriptOnce(src) {
-  if ([...document.scripts].some(s => s.src === new URL(src, location.href).href)) return Promise.resolve();
+  const url = new URL(src, location.href).href;
+  // Remember failures so a failed load can be retried — a dead `<script>` tag
+  // left in the document would silently satisfy this check forever.
+  loadScriptOnce.failed = loadScriptOnce.failed || {};
+  if (!loadScriptOnce.failed[url] && [...document.scripts].some(s => s.src === url)) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = src;
-    s.onload = resolve;
-    s.onerror = () => reject(new Error(`Could not load ${src}`));
+    s.onload = () => { loadScriptOnce.failed[url] = false; resolve(); };
+    s.onerror = () => { loadScriptOnce.failed[url] = true; s.remove(); reject(new Error(`Could not load ${src}`)); };
     document.head.appendChild(s);
   });
 }
 
+let exportBusy = false;
+
 async function exportPdf() {
+  if (exportBusy) return;   // never run two writes over #printDoc at once
+  exportBusy = true;
+  try {
+    await runPdfExport();
+  } finally {
+    exportBusy = false;
+  }
+}
+
+async function runPdfExport() {
   try {
     await Promise.all([
       loadScriptOnce('./assets/vendor/html2canvas.min.js'),
@@ -840,7 +871,7 @@ function pickActivity(a) {
   eraseMode = false;
   brushKey = a.key;
   state.settings.brush = a.key;
-  save(state);
+  saveKeys(state, ['settings']);
 
   if (selectedId) {
     const b = blocks().find(x => x.id === selectedId);
@@ -1297,10 +1328,12 @@ function bindEvents() {
     const key = `custom:${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Date.now().toString(36).slice(-4)}`;
     state.activities = [...state.activities, { key, label, kind: 'study' }];
     state.settings.brush = key;
-    save(state);
+    // Scoped write: the in-memory state already holds the new activity.
+    // Re-loading from the disk here would race the debounced save and could
+    // drop the new activity entirely.
+    saveKeysNow(state, ['activities', 'settings']);
     brushKey = key;
     eraseMode = false;
-    state = load();
     render();
     showToast(`Added "${label}"`);
   });
@@ -1340,7 +1373,8 @@ function bindEvents() {
     if (el.dropOverlay) el.dropOverlay.hidden = false;
   });
   window.addEventListener('dragover', (e) => {
-    if (!e.dataTransfer?.types?.includes('Files')) return;
+    // Dragover must be canceled for the browser to even fire `drop` — leaving
+    // it alone lets a link or an image navigate this tab away.
     e.preventDefault();
   });
   window.addEventListener('dragleave', () => {
@@ -1348,8 +1382,10 @@ function bindEvents() {
     if (!dragDepth && el.dropOverlay) el.dropOverlay.hidden = true;
   });
   window.addEventListener('drop', async (e) => {
-    if (!e.dataTransfer?.files?.length) return;
+    // Always cancel the browser default — letting a link or an image through
+    // would navigate this tab away from the planner.
     e.preventDefault();
+    if (!e.dataTransfer?.files?.length) return;
     dragDepth = 0;
     if (el.dropOverlay) el.dropOverlay.hidden = true;
     await runImport(e.dataTransfer.files[0]);
@@ -1358,7 +1394,6 @@ function bindEvents() {
   el.planSaveTimer?.addEventListener('click', () => {
     if (!blocks().length) { showToast('Nothing to save'); return; }
     savePlanForTimer(state, current, current.imported?.label || labelDate(currentDate, { weekday: 'long', month: 'long', day: 'numeric' }));
-    saveNow(state);
     showToast('Saved to timer');
   });
 
@@ -1385,7 +1420,7 @@ function bindEvents() {
     if (input.name === 'printLayout') printOpts.layout = input.value === 'zen' ? 'zen' : 'full';
 
     state.settings.print = { ...printOpts };
-    save(state);
+    saveKeys(state, ['settings']);
     renderPrintDoc();
     renderPrintPreview();
     updatePrintHint();
@@ -1404,7 +1439,7 @@ function bindEvents() {
     const next = html.dataset.theme === 'graphite' ? 'void' : 'graphite';
     html.dataset.theme = next;
     state.settings.theme = next;
-    save(state);
+    saveKeys(state, ['settings']);
     showToast(next === 'graphite' ? 'Graphite theme' : 'Void theme');
   });
 
@@ -1438,6 +1473,12 @@ async function importCadenceJson(file) {
         const parsed = JSON.parse(text);
         if (!parsed || typeof parsed !== 'object') throw new Error('bad');
         if (Array.isArray(parsed.sessions)) {
+          // This replaces the entire store — settings, sessions, counters,
+          // plans. Ask before it is irreversible.
+          if (!window.confirm('Import this file? It will replace all Cadence data on this device (sessions, plans, settings).')) {
+            resolve({ type: 'cancel' });
+            return;
+          }
           state.settings = sanitizeSettings(parsed.settings);
           state.sessions = sanitizeSessions(parsed.sessions);
           state.counters = {
@@ -1455,6 +1496,10 @@ async function importCadenceJson(file) {
           return;
         }
         if (parsed.plans && typeof parsed.plans === 'object') {
+          if (!window.confirm('Import plans? This replaces the plans currently stored for every date.')) {
+            resolve({ type: 'cancel' });
+            return;
+          }
           state.plans = sanitizePlans(parsed.plans);
           if (Array.isArray(parsed.activities)) state.activities = sanitizeActivities(parsed.activities);
           saveNow(state);

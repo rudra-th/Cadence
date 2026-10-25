@@ -284,21 +284,91 @@ export function load() {
   }
 }
 
+const STORE_KEYS = ['version', 'settings', 'sessions', 'counters', 'plans', 'activities', 'saved'];
+
 let saveTimer = null;
-export function save(state) {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(state));
-    } catch (err) {
-      console.warn('[Cadence] could not persist', err);
+let pendingState = null;
+const pendingKeys = new Set();
+/** Whether the most recent write reached localStorage at all. */
+let persistOk = true;
+
+/** True when the last attempted write failed (quota, private mode, …). */
+export function persistFailed() {
+  return !persistOk;
+}
+
+/**
+ * Write only the given top-level keys, merging everything else with what is
+ * already on the disk.
+ *
+ * Every page keeps the whole store in memory, and two pages can be open at
+ * once — the clock here, the plan there. A full-state write from one tab
+ * would silently roll back the other tab's work, so the hot paths (sessions,
+ * counters, plans, saved plans) write only the keys they actually own and
+ * take the rest of the store fresh from the disk.
+ */
+function writeKeys(state, keys) {
+  try {
+    const disk = load();
+    const merged = {};
+    for (const k of STORE_KEYS) {
+      merged[k] = keys.includes(k) ? state[k] : disk[k];
     }
-  }, 120);
+    localStorage.setItem(KEY, JSON.stringify(merged));
+    persistOk = true;
+    return true;
+  } catch (err) {
+    console.warn('[Cadence] could not persist', err);
+    persistOk = false;
+    return false;
+  }
+}
+
+/* Batching: every writer shares one pending batch — one timer, one set of
+   keys, one state reference. A saveKeys for `counters` that arrives 1 ms
+   after a pending `sessions` write must *add* to the batch, never cancel it
+   (a plain clearTimeout would drop the row-close that was about to land). */
+
+function flushPending() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  const state = pendingState;
+  const keys = [...pendingKeys];
+  pendingState = null;
+  pendingKeys.clear();
+  if (!state || !keys.length) return;
+  writeKeys(state, keys);
+}
+
+function scheduleWrite(state, keys, delay) {
+  // A different state object means the snapshot was replaced outright
+  // (import / erase) — land whatever was still pending first, for that
+  // object's keys to stay honest.
+  if (pendingState && pendingState !== state) flushPending();
+  pendingState = state;
+  for (const k of keys) pendingKeys.add(k);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushPending, delay);
+}
+
+/** Debounced scoped write. */
+export function saveKeys(state, keys) {
+  scheduleWrite(state, keys, 120);
+}
+
+/** Immediate scoped write — use before pagehide or when feedback is shown. */
+export function saveKeysNow(state, keys) {
+  scheduleWrite(state, keys, 0);
+  flushPending();
+}
+
+export function save(state) {
+  scheduleWrite(state, STORE_KEYS, 120);
 }
 
 export function saveNow(state) {
-  clearTimeout(saveTimer);
-  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* quota / private mode */ }
+  scheduleWrite(state, STORE_KEYS, 0);
+  flushPending();
 }
 
 export function clearStore() {
@@ -315,7 +385,9 @@ export function getPlan(state, date) {
 /** Write a plan back into the store. */
 export function setPlan(state, date, plan) {
   state.plans[date] = { ...plan, date, updatedAt: Date.now() };
-  save(state);
+  // Immediate scoped write — the plan page flashes "Saved locally" right after
+  // this, so the write must land now and must not clobber other keys.
+  saveKeysNow(state, ['plans']);
   return state.plans[date];
 }
 
@@ -344,7 +416,7 @@ export function addSession(state, {
   };
   if (live) session.live = true;
   state.sessions.push(session);
-  save(state);
+  saveKeys(state, ['sessions']);
   return session;
 }
 
@@ -356,7 +428,7 @@ export function updateSession(state, id, patch) {
   if (patch.label != null) s.label = String(patch.label).slice(0, 60);
   if (patch.live != null) s.live = !!patch.live;
   if (patch.start != null) s.start = patch.start;
-  save(state);
+  saveKeys(state, ['sessions']);
   return s;
 }
 
@@ -381,13 +453,13 @@ export function closeOrphanSessions(state, now = Date.now(), exceptId = '') {
     s.live = false;
     changed = true;
   }
-  if (changed) save(state);
+  if (changed) saveKeys(state, ['sessions']);
   return changed;
 }
 
 export function removeSession(state, id) {
   const i = state.sessions.findIndex(s => s.id === id);
-  if (i >= 0) { state.sessions.splice(i, 1); save(state); }
+  if (i >= 0) { state.sessions.splice(i, 1); saveKeys(state, ['sessions']); }
 }
 
 export function recentSessions(state, limit = 60) {
@@ -424,14 +496,14 @@ export function savePlanForTimer(state, plan, label = '') {
   }
   // Keep the list short — the newest twelve are the ones that matter.
   state.saved = state.saved.slice(-12);
-  save(state);
+  saveKeysNow(state, ['saved']);
   return record;
 }
 
 export function removeSavedPlan(state, id) {
   const before = state.saved.length;
   state.saved = state.saved.filter(s => s.id !== id);
-  if (state.saved.length !== before) save(state);
+  if (state.saved.length !== before) saveKeysNow(state, ['saved']);
 }
 
 export function getSavedPlan(state, id) {
