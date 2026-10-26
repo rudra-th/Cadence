@@ -20,8 +20,11 @@
     return t * t * (3 - 2 * t);
   };
 
-  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /* Live MediaQueryList, not a one-shot read — the preference can flip
+     mid-session and the page should follow it, not remember what it was. */
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const finePointer = window.matchMedia('(pointer: fine)').matches;
+  const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
 
   /* ──────────────────────────────────────────────────────────────
      Boot leader
@@ -38,7 +41,7 @@
       document.body.classList.add('is-ready');
     };
 
-    if (reduceMotion) {
+    if (reduceMotion.matches) {
       el.remove();
       ready();
       return;
@@ -72,9 +75,11 @@
      ────────────────────────────────────────────────────────────── */
 
   let lenis = null;
+  /** Set by initCursor — lets the reduced-motion listener park the follower. */
+  let cursorControl = null;
 
   function initScroll() {
-    if (reduceMotion || typeof window.Lenis === 'undefined') return;
+    if (reduceMotion.matches || typeof window.Lenis === 'undefined') return;
 
     lenis = new window.Lenis({
       duration: 1.15,
@@ -85,6 +90,7 @@
     });
 
     const raf = (time) => {
+      if (!lenis) return; // destroyed — let the loop wind down
       lenis.raf(time);
       requestAnimationFrame(raf);
     };
@@ -95,7 +101,7 @@
         const id = link.getAttribute('href');
         if (!id || id.length < 2) return;
         const target = document.getElementById(id.slice(1));
-        if (!target) return;
+        if (!target || !lenis) return;
         event.preventDefault();
         lenis.scrollTo(target, { offset: -Math.min(72, window.innerHeight * 0.08), duration: 1.45 });
       });
@@ -211,7 +217,7 @@
      ────────────────────────────────────────────────────────────── */
 
   function initCursor() {
-    if (!finePointer || reduceMotion) return;
+    if (!finePointer || reduceMotion.matches) return;
 
     const root = $('#cursor');
     if (!root) return;
@@ -225,24 +231,7 @@
     let dy = my;
     let rx = mx;
     let ry = my;
-
-    window.addEventListener('pointermove', (e) => {
-      mx = e.clientX;
-      my = e.clientY;
-      root.classList.add('is-on');
-    }, { passive: true });
-
-    window.addEventListener('pointerdown', () => root.classList.add('is-down'));
-    window.addEventListener('pointerup', () => root.classList.remove('is-down'));
-    document.addEventListener('mouseleave', () => root.classList.remove('is-on'));
-
-    const hoverables = 'a, button, .day__block, .how__row, .cell, .film__chapters > span';
-    document.addEventListener('pointerover', (e) => {
-      if (e.target.closest(hoverables)) root.classList.add('is-hover');
-    });
-    document.addEventListener('pointerout', (e) => {
-      if (e.target.closest(hoverables)) root.classList.remove('is-hover');
-    });
+    let rafId = null;
 
     const loop = () => {
       dx += (mx - dx) * 0.55;
@@ -251,9 +240,58 @@
       ry += (my - ry) * 0.16;
       if (dot) dot.style.transform = `translate3d(${dx}px, ${dy}px, 0) translate(-50%, -50%)`;
       if (ring) ring.style.transform = `translate3d(${rx}px, ${ry}px, 0) translate(-50%, -50%)`;
-      requestAnimationFrame(loop);
+      rafId = requestAnimationFrame(loop);
     };
-    requestAnimationFrame(loop);
+
+    const startLoop = () => {
+      if (rafId === null) rafId = requestAnimationFrame(loop);
+    };
+
+    const stopLoop = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+    };
+
+    /* The loop is born on the first pointer move, not at page load — until
+       then the ring has nowhere honest to sit, so it stays hidden. */
+    window.addEventListener('pointermove', (e) => {
+      mx = e.clientX;
+      my = e.clientY;
+      root.classList.add('is-on');
+      startLoop();
+    }, { passive: true });
+
+    window.addEventListener('pointerdown', () => root.classList.add('is-down'));
+    window.addEventListener('pointerup', () => root.classList.remove('is-down'));
+
+    /* Leaving the window parks the follower; coming back revives it on the
+       next pointer move. */
+    document.addEventListener('mouseout', (e) => {
+      if (e.relatedTarget) return;
+      root.classList.remove('is-on');
+      stopLoop();
+    });
+    window.addEventListener('blur', () => {
+      root.classList.remove('is-on');
+      stopLoop();
+    });
+
+    const hoverables = 'a, button, .day__block, .how__row, .cell, .film__chapters > button';
+    document.addEventListener('pointerover', (e) => {
+      if (e.target.closest(hoverables)) root.classList.add('is-hover');
+    });
+    document.addEventListener('pointerout', (e) => {
+      if (e.target.closest(hoverables)) root.classList.remove('is-hover');
+    });
+
+    cursorControl = {
+      settle: () => {
+        stopLoop();
+        root.classList.remove('is-on', 'is-hover', 'is-down');
+      },
+    };
   }
 
   /* ──────────────────────────────────────────────────────────────
@@ -315,7 +353,9 @@
     if (!canvas || !ctx) return;
 
     const rect = canvas.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    /* Coarse pointers pay per filled pixel, so hold the backing store down. */
+    const dprCap = coarsePointer ? 1.5 : 2;
+    const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
 
     FILM.w = rect.width;
     FILM.h = rect.height;
@@ -355,7 +395,7 @@
     ctx.scale(0.92 + appear * 0.08, 0.92 + appear * 0.08);
 
     /* slow rotation keeps the dial alive even when the scroll is still */
-    const drift = reduceMotion ? 0 : Math.sin(time * 0.00012) * 0.05;
+    const drift = reduceMotion.matches ? 0 : Math.sin(time * 0.00012) * 0.05;
     ctx.rotate(drift);
 
     /* outer hairline */
@@ -425,7 +465,7 @@
     ctx.fillStyle = `rgba(255,255,255,${0.95 * appear})`;
     ctx.fill();
 
-    const pulse = reduceMotion ? 1 : 1 + Math.sin(time * 0.0022) * 0.18;
+    const pulse = reduceMotion.matches ? 1 : 1 + Math.sin(time * 0.0022) * 0.18;
     ctx.beginPath();
     ctx.arc(nx, ny, 13 * pulse, 0, Math.PI * 2);
     ctx.strokeStyle = `rgba(255,255,255,${0.24 * appear})`;
@@ -639,7 +679,7 @@
     const local = smooth(0.5, 0.68, p);
     const fade = smooth(0.53, 0.63, p);
     const ease = 0.96 + local * 0.04;
-    const breath = reduceMotion ? 1 : 0.55 + Math.sin(time * 0.0018) * 0.45;
+    const breath = reduceMotion.matches ? 1 : 0.55 + Math.sin(time * 0.0018) * 0.45;
 
     /* the counter itself is HTML (.film__now), centered near 47% latitude —
        the canvas gives it a quiet room, exactly around it */
@@ -740,7 +780,7 @@
     const amplitude = Math.min(w, h) * 0.055 * local;
     const span = Math.min(w * 0.86, 1300);
     const x0 = (w - span) / 2;
-    const phase = reduceMotion ? 0 : time * 0.00045;
+    const phase = reduceMotion.matches ? 0 : time * 0.00045;
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -760,9 +800,12 @@
       { amp: 0.28, alpha: 0.16, width: 1, speed: 1.7 },
     ];
 
+    /* Coarse pointers trace a coarser line — half the path, same shape. */
+    const stride = coarsePointer ? 6 : 2;
+
     layers.forEach((layer) => {
       ctx.beginPath();
-      for (let x = 0; x <= span; x += 2) {
+      for (let x = 0; x <= span; x += stride) {
         const u = x / span;
         const envelope = Math.sin(u * Math.PI);
         const wave =
@@ -784,7 +827,7 @@
       const u = i / (beats - 1);
       const x = x0 + u * span;
       const seen = clamp((local - u * 0.4) / 0.6, 0, 1);
-      const pulse = reduceMotion ? 1 : 1 + Math.sin(time * 0.002 + i) * 0.25;
+      const pulse = reduceMotion.matches ? 1 : 1 + Math.sin(time * 0.002 + i) * 0.25;
 
       ctx.beginPath();
       ctx.arc(x, cy, 2.4 * pulse, 0, Math.PI * 2);
@@ -849,9 +892,6 @@
       const [start, end] = CAPTION_BOUNDS[i];
       const isOn = p >= start && (i === 3 ? p <= 1.001 : p < end);
       el.classList.toggle('is-on', isOn);
-      if (el.setAttribute) {
-        el.setAttribute('aria-selected', isOn ? 'true' : 'false');
-      }
     });
 
     if (filmEls.bar) filmEls.bar.style.transform = `scaleX(${p})`;
@@ -878,20 +918,26 @@
 
     filmEls.captions = $$('.film__caption');
     filmEls.now = $('#filmNow');
-    filmEls.chapters = $$('.film__chapters > span');
+    filmEls.chapters = $$('.film__chapters > button');
     filmEls.bar = $('#filmBar');
     filmEls.timecode = $('#filmTimecode');
 
     measureFilm();
     paintFilmUI(0);
 
+    let rafId = null;
     let lastTime = 0;
+    let filmTime = 0;
+
     const loop = (time) => {
+      rafId = requestAnimationFrame(loop);
+
       const y = window.scrollY || window.pageYOffset;
       const span = Math.max(1, FILM.height - window.innerHeight);
       const target = clamp((y - FILM.top) / span, 0, 1);
+      FILM.target = target;
 
-      if (reduceMotion) {
+      if (reduceMotion.matches) {
         FILM.progress = target;
       } else {
         /* the heavy, video-like scrub */
@@ -899,17 +945,58 @@
         if (Math.abs(target - FILM.progress) < 0.0002) FILM.progress = target;
       }
 
-      /* only do the expensive work when the stage is on screen */
-      const onScreen = y + window.innerHeight > FILM.top - window.innerHeight * 0.2 && y < FILM.top + FILM.height + window.innerHeight * 0.2;
-      if (onScreen) {
-        renderFilm(FILM.progress, time);
+      /* The ambient drift and pulse freeze while a fast scrub is eating the
+         frame budget — touch only; the desktop keeps its idle life. */
+      const dt = Math.min(50, time - lastTime);
+      lastTime = time;
+      const calm = !coarsePointer || Math.abs(target - FILM.progress) < 0.02;
+      if (calm) filmTime += dt;
+
+      /* Under reduced motion the frame snaps to target and needs no further
+         painting; anything else keeps the dial alive between scrubs. */
+      const settled = FILM.progress === FILM.target;
+      if (!settled || !reduceMotion.matches) {
+        renderFilm(FILM.progress, filmTime);
         paintFilmUI(FILM.progress);
       }
-
-      requestAnimationFrame(loop);
     };
 
-    requestAnimationFrame(loop);
+    const startLoop = () => {
+      if (rafId === null) rafId = requestAnimationFrame(loop);
+    };
+
+    const stopLoop = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+    };
+
+    /* The loop only earns its frames while the film is on screen — the tall
+       margin keeps it warm through the edges of the pin. */
+    const visibility = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) startLoop();
+        else stopLoop();
+      });
+    }, { rootMargin: '10% 0px 10% 0px' });
+    visibility.observe(FILM.section);
+
+    /* The chapters are a real scrubber: each act owns a quarter of the
+       film's scrollable run, so a click jumps to the top of the chosen act.
+       It works at any film height — the span is measured, not assumed. */
+    filmEls.chapters.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const index = Number(btn.dataset.ch) || 0;
+        const span = Math.max(1, FILM.height - window.innerHeight);
+        const top = FILM.top + (index * span) / 4;
+        if (lenis) {
+          lenis.scrollTo(top, { immediate: reduceMotion.matches, duration: 1.3 });
+        } else {
+          window.scrollTo({ top, behavior: reduceMotion.matches ? 'auto' : 'smooth' });
+        }
+      });
+    });
 
     let resizeTimer = null;
     window.addEventListener('resize', () => {
@@ -973,11 +1060,11 @@
     manifestoWords = splitWords(manifestoEl);
     manifestoPainted = null;
     manifestoWords.forEach((w) => { w.style.color = '#757575'; w.style.opacity = '1'; });
-    if (reduceMotion) manifestoWords.forEach((w) => { w.style.color = '#bfbfbf'; w.style.opacity = '1'; });
+    if (reduceMotion.matches) manifestoWords.forEach((w) => { w.style.color = '#bfbfbf'; w.style.opacity = '1'; });
   }
 
   function paintManifesto() {
-    if (!manifestoEl || !manifestoWords.length || reduceMotion) return;
+    if (!manifestoEl || !manifestoWords.length || reduceMotion.matches) return;
 
     const rect = manifestoEl.getBoundingClientRect();
     if (rect.bottom < -80 || rect.top > window.innerHeight + 80) return;
@@ -1009,7 +1096,7 @@
   function initReveals() {
     const nodes = $$('.reveal');
 
-    if (reduceMotion || !('IntersectionObserver' in window)) {
+    if (reduceMotion.matches || !('IntersectionObserver' in window)) {
       nodes.forEach((node) => node.classList.add('in-view'));
       return;
     }
@@ -1040,6 +1127,21 @@
     const from = 6;
     const to = 24;
     const span = to - from;
+
+    /* The board tells the story of one Tuesday — date the sample to the
+       current week's Tuesday so the pitch never reads as months stale. */
+    const today = new Date();
+    const tuesday = new Date(today);
+    tuesday.setDate(today.getDate() - ((today.getDay() - 2 + 7) % 7));
+
+    const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][tuesday.getDay()];
+    const dateLabel = $('#dayDate');
+    if (dateLabel) dateLabel.textContent = `${dayName} · ${tuesday.getDate()}`;
+
+    const monthName = tuesday.toLocaleString('en-US', { month: 'long' });
+    const dateFull = `Tuesday ${tuesday.getDate()} ${monthName} (sample schedule)`;
+    track0.setAttribute('aria-label', `${dateFull} — morning and afternoon blocks`);
+    track1.setAttribute('aria-label', `${dateFull} — evening and night blocks`);
 
     const fmt = (hour) => {
       const h = Math.floor(hour);
@@ -1090,7 +1192,7 @@
     track1.appendChild(now1);
 
     if (board) {
-      if (reduceMotion || !('IntersectionObserver' in window)) {
+      if (reduceMotion.matches || !('IntersectionObserver' in window)) {
         board.classList.add('is-live');
       } else {
         const observer = new IntersectionObserver((entries) => {
@@ -1148,6 +1250,32 @@
   }
 
   /* ──────────────────────────────────────────────────────────────
+     Live reduced-motion handling
+     ────────────────────────────────────────────────────────────── */
+
+  function initMotionChanges() {
+    if (!reduceMotion.addEventListener) return; // older Safari: read once, live with it
+
+    reduceMotion.addEventListener('change', () => {
+      if (!reduceMotion.matches) return;
+
+      /* The film snaps straight to wherever the scroll says it is — no lerp
+         lag once the preference is on. */
+      FILM.progress = FILM.target;
+      renderFilm(FILM.progress, 0);
+      paintFilmUI(FILM.progress);
+
+      /* Lenis is smoothing by definition, so under reduced motion let go. */
+      if (lenis) {
+        lenis.destroy();
+        lenis = null;
+      }
+
+      if (cursorControl) cursorControl.settle();
+    });
+  }
+
+  /* ──────────────────────────────────────────────────────────────
      Go
      ────────────────────────────────────────────────────────────── */
 
@@ -1162,6 +1290,7 @@
     initReveals();
     initDay();
     initFrameLoop();
+    initMotionChanges();
     measurePage();
     paintScrollUI();
   }

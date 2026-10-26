@@ -39,6 +39,7 @@
   <span class="aurora__grain"></span>
 </div>
 
+<a class="skip" href="#planMain">Skip to the planner</a>
 <div class="app">
 
   <header class="topbar">
@@ -77,7 +78,7 @@
     </div>
   </header>
 
-  <main class="workspace planpage__workspace">
+  <main class="workspace planpage__workspace" id="planMain">
 
     <header class="plan__hero">
       <div class="plan__hero-top">
@@ -128,9 +129,10 @@
 
     <div class="plan__quickbar">
       <div class="plan__quickbar-inner">
-        <button class="btn btn--ghost btn--xs" id="planImport" type="button">Import PDF</button>
+        <button class="btn btn--ghost btn--xs" id="planImport" type="button"><span class="qbtn__full">Import PDF</span><span class="qbtn__short">Import</span></button>
         <input type="file" id="planImportFile" accept="application/pdf,.pdf" hidden>
         <button class="btn btn--ghost btn--xs" id="planCopy" type="button">Copy day</button>
+        <button class="btn btn--ghost btn--xs" id="planExport" type="button">Export</button>
         <button class="btn btn--ghost btn--xs" id="planPrint" type="button">Print</button>
         <button class="btn btn--ghost btn--xs btn--danger" id="planClear" type="button">Clear day</button>
       </div>
@@ -159,6 +161,10 @@
             <div class="toolbar__divider"></div>
             <div class="toolbar__tools">
               <div class="toolbar__erase" id="planEraseSlot"></div>
+              <button class="btn btn--ghost btn--sm" id="planAddBlock" type="button" title="Create a one-hour block in the first free hour">
+                <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M12 9v6M9 12h6"/></svg>
+                <span class="btn__label">Add<span class="add-long"> block</span></span>
+              </button>
               <button class="btn btn--ghost btn--sm" id="planAddActivity" type="button" aria-label="Add activity">
                 <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
                 <span class="btn__label">Add<span class="add-long"> activity</span></span>
@@ -261,8 +267,8 @@
           <div class="tasklist" id="planTasks"></div>
         </section>
         <div class="plan__side-actions">
-          <button class="btn btn--ghost btn--xs" id="planUndo" type="button" disabled>Undo</button>
-          <button class="btn btn--ghost btn--xs" id="planRedo" type="button" disabled>Redo</button>
+          <button class="btn btn--ghost btn--xs" id="planUndo" type="button" title="Undo — Ctrl+Z" disabled>Undo</button>
+          <button class="btn btn--ghost btn--xs" id="planRedo" type="button" title="Redo — Ctrl+Shift+Z" disabled>Redo</button>
         </div>
       </aside>
     </div>
@@ -304,6 +310,27 @@
       <button class="btn btn--soft" type="button" id="copyCancel">Cancel</button>
     </footer>
   </div>
+</dialog>
+
+<dialog class="modal" id="askDialog" aria-labelledby="askTitle">
+  <form class="modal__form" id="askForm">
+    <header class="modal__head">
+      <div>
+        <h2 class="modal__title" id="askTitle">Name this activity</h2>
+        <p class="modal__sub" id="askSub">It joins the palette and becomes the brush</p>
+      </div>
+      <button class="icon-btn" type="button" id="askClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <div class="modal__body">
+      <input class="input" id="askInput" type="text" maxlength="40" placeholder="e.g. Physics revision" autocomplete="off" aria-label="Name">
+    </div>
+    <footer class="modal__foot">
+      <button class="btn btn--soft" type="button" id="askCancel">Cancel</button>
+      <button class="btn btn--primary" type="submit" id="askOk">Add</button>
+    </footer>
+  </form>
 </dialog>
 
 <dialog class="modal modal--print" id="printDialog" aria-labelledby="printTitle">
@@ -381,5 +408,6 @@
 <section class="printdoc" id="printDoc" aria-hidden="true"></section>
 
 <script type="module" src="./assets/js/planpage.js"></script>
+<script defer src="assets/js/swreg.js"></script>
 </body>
 </html>

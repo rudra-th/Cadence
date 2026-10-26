@@ -60,9 +60,13 @@
   --accent-soft:   rgba(255, 255, 255, 0.10);
   --accent-line:   rgba(255, 255, 255, 0.26);
 
+  /* Status hues. The palette is otherwise greyscale, so these are the only
+     two coloured tokens: danger takes the red the destructive buttons already
+     wore (#ff6b6b — 7.5:1 on the darkest surface), warn a quiet amber
+     (13:1). White meant "any state", which made danger invisible. */
   --ok:            #FFFFFF;
-  --warn:          #FFFFFF;
-  --danger:        #FFFFFF;
+  --warn:          #FFC46B;
+  --danger:        #FF6B6B;
 
   --r-sm: 10px;
   --r:    14px;
@@ -98,6 +102,9 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* The grey tap flash is noise on a monochrome app — pressed states are
+     drawn by the controls themselves. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -119,6 +126,10 @@ body {
 button, input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
 button { background: none; border: 0; cursor: pointer; }
 input, select { background: none; border: 0; }
+/* Controls answer on the first tap: double-tap zoom is a page gesture,
+   not something a button wants. The timetable keeps its own touch-action
+   (it has to decide between panning and dragging). */
+button, a, [role="button"], .chip, .qbtn, .icon-btn { touch-action: manipulation; }
 h1, h2, h3 { font-weight: 600; letter-spacing: -0.02em; }
 ul { list-style: none; }
 svg { display: block; }
@@ -131,6 +142,31 @@ svg { display: block; }
   outline-offset: 3px;
   border-radius: 6px;
 }
+
+/* ── Skip link ───────────────────────────────────────────── */
+/* Lives in styles.css rather than the landing theme so every page of the
+   app shares it (index.html, plan.html, clock.html all use class="skip").
+   Translated off-screen instead of display:none — a hidden skip link that
+   can't be tabbed to is not a skip link. */
+.skip {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 900;
+  padding: 10px 14px;
+  border-radius: var(--r-sm);
+  background: var(--text);
+  color: var(--bg);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  transform: translateY(-200%);
+  transition: transform var(--dur) var(--ease);
+}
+.skip:focus,
+.skip:focus-visible { transform: none; }
 
 /* Scrollbars */
 .drawer__body::-webkit-scrollbar,
@@ -630,6 +666,12 @@ svg { display: block; }
 .agenda__body[data-single="false"] .agenda__session {
   padding-right: 12px;
   border-right: 1px solid var(--line);
+}
+
+/* An empty day shows the card for its way into the planner, but the two
+   body columns are empty boxes — they hide, the head carries the message. */
+.agenda[data-state="empty"] .agenda__body {
+  display: none;
 }
 
 .agenda__session {
@@ -1371,6 +1413,13 @@ kbd {
   box-shadow: var(--shadow-lg);
   backdrop-filter: blur(30px) saturate(1.4);
   -webkit-backdrop-filter: blur(30px) saturate(1.4);
+  /* A dialog taller than the viewport is unusable — the foot buttons end up
+     off-screen. Cap it and scroll the body inside instead. On desktop every
+     dialog fits its content, so the cap never binds and nothing moves. */
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
 }
 .modal::backdrop {
   background: rgba(0, 0, 0, 0.62);
@@ -1385,21 +1434,46 @@ kbd {
 }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
-.modal__form { display: flex; flex-direction: column; }
+.modal__form {
+  display: flex;
+  flex-direction: column;
+  /* The form is the dialog's one child and its scroll driver: when the
+     cap above binds, the body shrinks and scrolls, not the head or foot. */
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .modal__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex: none;
   padding: 18px 18px 12px 22px;
 }
 .modal__title { font-size: 16.5px; font-weight: 600; }
-.modal__body { padding: 6px 22px 18px; }
+.modal__body {
+  padding: 6px 22px 18px;
+  /* The scrollable region. min-height: 0 is what lets a flex child
+     actually shrink below its content. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .modal__foot {
   display: flex;
   justify-content: flex-end;
+  flex: none;
   gap: 8px;
   padding: 14px 22px 20px;
   border-top: 1px solid var(--line);
+}
+
+/* Landscape phones hand the dialog every pixel they can spare. */
+@media (max-height: 480px) {
+  .modal {
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+  }
 }
 
 /* ── Toast ───────────────────────────────────────────────── */
@@ -1863,11 +1937,11 @@ body.planpage {
   border-color: var(--line);
 }
 .btn--danger {
-  color: #ff6b6b;
+  color: var(--danger);
 }
 .btn--danger:hover {
   background: rgba(255, 107, 107, 0.1);
-  color: #ff6b6b;
+  color: var(--danger);
   border-color: rgba(255, 107, 107, 0.3);
 }
 @keyframes fadeIn {
@@ -2114,6 +2188,9 @@ body.planpage {
 }
 .plan__quickbar .btn--ghost { border: 0; }
 .plan__quickbar .btn--danger { margin-left: 2px; }
+/* Labels ship in their long form; the 380px query swaps in the short one
+   once the markup provides both spans. */
+.qbtn__short { display: none; }
 
 .plan__side-actions {
   display: flex;
@@ -2333,6 +2410,9 @@ body.planpage .grid__block[data-kind="life"] .grid__blockdur {
   opacity: 0.72;
 }
 .grid__block.is-short .grid__blockdur { display: none; }
+/* Same idea vertically: a block too short for a label drops the label
+   entirely (JS adds .is-tiny) instead of clipping text mid-line. */
+.grid__block.is-tiny .grid__blocklabel { display: none; }
 
 .grid__now {
   position: absolute;
@@ -2532,11 +2612,11 @@ body.planpage .inspector__dot[data-kind="life"]  { background: var(--plan-life);
   height: 16px;
 }
 .inspector-btn--danger {
-  color: #ff6b6b;
+  color: var(--danger);
 }
 .inspector-btn--danger:hover {
   background: rgba(255, 107, 107, 0.12);
-  color: #ff6b6b;
+  color: var(--danger);
 }
 .inspector-btn--icon {
   width: 32px;
@@ -3219,6 +3299,18 @@ body.landing { background: var(--bg); }
 
 @media (max-width: 620px) {
 
+  /* ── the aurora ──────────────────────────────────────────
+     Two 90px-blurred, perpetually drifting layers are the most expensive
+     thing on the page. On a phone they settle into a static soft glow —
+     still there, just not paying rent every frame. */
+  .aurora__blob {
+    width: 34vmax;
+    height: 34vmax;
+    filter: blur(48px);
+    animation: none;
+    will-change: auto;
+  }
+
   /* ── the shell ─────────────────────────────────────────── */
   body { overflow-x: clip; }
   .app { padding: 0; }
@@ -3296,7 +3388,10 @@ body.landing { background: var(--bg); }
   /* ── the quick actions ─────────────────────────────────── */
   .plan__quickbar-inner {
     width: 100%;
-    gap: 2px;
+    /* Wider gaps so each button's enlarged touch area (see the touch
+       ergonomics block) meets its neighbour instead of covering it —
+       which also keeps "Clear day" and "Print" from sharing a tap. */
+    gap: 8px;
     padding: 2px;
     border-radius: 11px;
   }
@@ -3351,7 +3446,11 @@ body.landing { background: var(--bg); }
     flex-wrap: nowrap;
     overflow-x: auto;
     gap: 2px;
-    padding-bottom: 1px;
+    /* Vertical padding + negative margin: the chips get invisible room for
+       their enlarged touch areas without the strip clipping them, and the
+       toolbar keeps its exact height. */
+    padding: 8px 0;
+    margin: -8px 0;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
     -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 6px), transparent 100%);
@@ -3435,10 +3534,19 @@ body.landing { background: var(--bg); }
     flex-wrap: nowrap;
     overflow-x: auto;
     gap: 3px;
+    /* Same affordances as the activity picker above: room for the enlarged
+       touch areas, a faded right edge that says "there is more", and snap
+       so a flick lands on a button instead of half of one. */
+    padding: 8px 0;
+    margin: -8px 0;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 6px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 6px), transparent 100%);
   }
   .inspector__acts::-webkit-scrollbar { display: none; }
+  .inspector__acts .inspector-btn { scroll-snap-align: start; }
   .inspector__divider { height: 18px; }
   .inspector-btn { height: 30px; padding: 0 8px; gap: 4px; font-size: 10.5px; }
   .inspector-btn svg { width: 14px; height: 14px; }
@@ -3522,7 +3630,10 @@ body.landing { background: var(--bg); }
   .agenda__body[data-single="false"] .agenda__tasks { padding-left: 0; }
   .agenda__cta { height: 34px; font-size: 12px; }
   .settings { width: min(420px, calc(100vw - 16px)); right: 8px; top: 62px; }
-  .modal__form { width: min(420px, calc(100vw - 16px)); }
+  /* The form fills the dialog (100vw - 28px) instead of overshooting it —
+     the old width was 12px wider than the modal itself. As a flex child it
+     stretches; no explicit width needed. */
+  .modal__form { width: auto; }
 }
 
 /* Very small phones: shave a few more pixels without losing the day. */
@@ -3533,9 +3644,15 @@ body.landing { background: var(--bg); }
   .plan__title { font-size: 1.1rem; }
   .plan__primary-actions .btn { font-size: 11.5px; }
   .weekday { padding: 4px 1px 3px; }
-  .weekday__name { font-size: 7px; }
-  .weekday__num { font-size: 12px; }
+  /* On the narrowest phones the three-letter day names fight the dates;
+     the number alone carries the column. */
+  .weekday__name { display: none; }
+  .weekday__num { font-size: 13px; }
   .plan__quickbar .btn { font-size: 10px; padding: 0 2px; }
+  /* Short quickbar labels: "Import", "Copy", "Print", "Clear" — the
+     long forms stay in the markup for every other width. */
+  .qbtn__full { display: none; }
+  .qbtn__short { display: inline; }
   /* On the smallest phones the tool label gives way to the plus, so the
      three first activities stay whole. */
   #planAddActivity { width: 30px; padding: 0; justify-content: center; }
@@ -3554,6 +3671,81 @@ body.landing { background: var(--bg); }
   .grid__track { touch-action: pan-y; }
   .grid__edge,
   .grid__grip { display: none; }
+
+  /* The brush lock flips this around: while it is on, the grid owns every
+     gesture, so a finger can drag across a whole afternoon and the page
+     auto-scrolls at the edges instead of panning away mid-stroke. The class
+     lands on <body> the moment the lock is toggled, before the next gesture
+     starts — touch-action is only read at gesture start. */
+  .paint-lock .grid__track,
+  .paint-lock .grid__block { touch-action: none; }
+
+  /* A long-press on the timetable should start a drag, not the
+     text-selection or call-out UI. Only the grid gives up
+     selectability — everywhere else the app stays copyable. */
+  .grid, .grid__track, .grid__block, .grid__blocklabel,
+  .grid__edge, .grid__grip {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* Text entry on touch screens. iOS Safari zooms the whole page when a
+   focused input's computed font-size is under 16px, and the phone layout
+   shrinks most of these controls to 12.5px — so coarse pointers get 16px
+   text regardless of what the width queries say. This block sits after
+   every other font-size rule in the file and matches (or exceeds) their
+   specificity, so it wins the cascade without !important; keep any new
+   input font-size rules before it.
+   The fixed heights still clear 16px type, so nothing clips. */
+@media (hover: none), (pointer: coarse) {
+  input[type="text"], input[type="number"], input[type="time"],
+  input[type="search"], input[type="password"], input[type="email"],
+  input[type="url"], input[type="tel"], input[type="date"],
+  select, textarea,
+  .input, .select, .taskform .input, .taskform .select {
+    font-size: 16px;
+  }
+}
+
+/* ── Touch ergonomics ──────────────────────────────────────
+   The small controls keep their visual size and gain invisible tap area:
+   a pseudo-element is painted and hit-tested as part of its own element,
+   so stretching it over the surrounding padding makes a real target
+   without moving a pixel. Where two targets sit close together the
+   spacing has been opened up (quickbar gap, chip gap) so the enlarged
+   areas meet rather than steal each other's taps. */
+@media (hover: none), (pointer: coarse) {
+  .taskcheck, .icon-btn--sm, .chip__x, .plan-nav-btn,
+  .plan__quickbar .btn, .pick, .weekday {
+    position: relative;
+  }
+  /* The inspector's close button is already absolutely positioned —
+     it only needs the patch, not a new position. */
+  .taskcheck::after, .icon-btn--sm::after, .chip__x::after,
+  .plan-nav-btn::after, .plan__quickbar .btn::after, .pick::after,
+  .weekday::after, .inspector__acts .inspector-btn--icon::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+  /* The remove control sits 3px from its chip; open that gap so the
+     patch reaches the chip's edge without covering it. */
+  .chip-wrap { gap: 8px; }
+}
+
+/* Narrow phones: five stats across five columns turns the labels into
+   7.5px confetti. Three per row keeps them readable, and the column
+   seam rules are retired — the grid's own rhythm does the separating. */
+@media (max-width: 420px) {
+  .plan__side-col .weekrow__stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    row-gap: 6px;
+  }
+  .plan__side-col .weekrow__stats .plan__stat { border-right: none; }
+  .plan__side-col .weekrow__stats .plan__stat-label { font-size: 9px; }
 }
 
 /* ── The printed day ─────────────────────────────────────── */

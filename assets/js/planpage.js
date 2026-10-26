@@ -12,7 +12,7 @@
  * your own work never leaves a seam behind.
  */
 
-import { load, saveNow, saveKeys, saveKeysNow, persistFailed, getPlan, setPlan, savePlanForTimer, sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities, sanitizeSavedPlans } from './store.js';
+import { load, saveNow, saveKeys, saveKeysNow, persistFailed, getPlan, setPlan, savePlanForTimer, storeErrorNotice, sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities, sanitizeSavedPlans } from './store.js';
 import {
   SLOT_MIN, DAY_MIN, activityMap, toneOf, ACTIVITIES,
   paintRange, removeBlock, mergeBlocks, moveBlock, resizeBlockTo,
@@ -34,13 +34,43 @@ let current = getPlan(state, currentDate);   // the plan that is on screen
 let brushKey = state.settings.brush || 'self_study';
 let eraseMode = false;
 let selectedId = '';
+let focusedId = '';           // the block the keyboard is on (roving tabindex)
 let drag = null;              // the gesture in progress, if any
 let history = [];             // undo
 let future = [];              // redo
 
+/* Undo survives a reload: the last few snapshots live in localStorage under
+   their own key, so a mis-click followed by an accidental refresh is not the
+   end of the day. */
+const UNDO_KEY = 'cadence.undo.v1';
+const UNDO_KEEP = 20;
+
+function writeUndo() {
+  try {
+    localStorage.setItem(UNDO_KEY, JSON.stringify({ entries: history.slice(-UNDO_KEEP) }));
+  } catch { /* quota — undo simply stays memory-only */ }
+}
+
+function readUndo() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(UNDO_KEY) || 'null');
+    if (saved && Array.isArray(saved.entries)) history = saved.entries.slice(-UNDO_KEEP);
+  } catch { /* unreadable — start with an empty stack */ }
+}
+
 /* A finger is not a mouse: the timetable paints on tap and scrolls on drag,
    so the hint has to say so. */
 const COARSE_POINTER = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+
+/* The brush lock is the touch answer to dragging: while it is on, the grid
+   owns every gesture, so a finger can paint a whole afternoon in one stroke
+   and the page auto-scrolls at the edges. While it is off, the page scrolls
+   normally and only taps paint.
+   It starts ON on touch devices. With pan-y the browser claims any finger
+   that drifts a few pixels, so a tap meant to add an activity would turn
+   into a small page scroll and paint nothing — the lock makes the paint
+   win, and the same toggle hands scrolling back when it is turned off. */
+let brushLock = COARSE_POINTER;
 
 /* Last-used print style, remembered in the store. */
 let printOpts = { ...state.settings.print };
@@ -86,6 +116,14 @@ const el = {
   planClear: $('planClear'),
   planUndo: $('planUndo'),
   planRedo: $('planRedo'),
+  planAddBlock: $('planAddBlock'),
+  planExport: $('planExport'),
+  askDialog: $('askDialog'),
+  askForm: $('askForm'),
+  askInput: $('askInput'),
+  askOk: $('askOk'),
+  askCancel: $('askCancel'),
+  askClose: $('askClose'),
   planNow: $('planNow'),
   planRuntimeChip: $('planRuntimeChip'),
   planRuntimeText: $('planRuntimeText'),
@@ -100,12 +138,32 @@ const el = {
 
 /* ── small helpers ────────────────────────────────────────── */
 
-function showToast(msg) {
+function showToast(msg, opts) {
   if (!el.toast) return;
   el.toast.textContent = msg;
+  // A toast can carry one action — "Undo", "Switch" — so the message does not
+  // dead-end into Ctrl+Z knowledge the user may not have.
+  showToast.act?.remove();
+  showToast.act = null;
+  if (opts?.action && opts?.onAction) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast__act';
+    // Styled inline: the toast is shared markup and this button only exists
+    // here, so it stays out of the stylesheet.
+    btn.style.cssText = 'margin-left:12px;padding:0;background:none;border:0;color:inherit;font:inherit;font-weight:600;text-decoration:underline;text-underline-offset:2px;cursor:pointer;';
+    btn.textContent = opts.action;
+    btn.addEventListener('click', () => {
+      clearTimeout(showToast.t);
+      el.toast.hidden = true;
+      opts.onAction();
+    });
+    el.toast.appendChild(btn);
+    showToast.act = btn;
+  }
   el.toast.hidden = false;
   clearTimeout(showToast.t);
-  showToast.t = setTimeout(() => { el.toast.hidden = true; }, 1800);
+  showToast.t = setTimeout(() => { el.toast.hidden = true; }, opts?.action ? 5000 : 1800);
 }
 
 /** Encode a string as base64 — PDF-safe (plain ASCII), so it survives extraction. */
@@ -302,6 +360,7 @@ function remember(blocksSnapshot) {
   history.push(snapshot(blocksSnapshot));
   if (history.length > 80) history.shift();
   future.length = 0;
+  writeUndo();
 }
 
 /** Put a remembered day back on screen. */
@@ -321,6 +380,7 @@ function restore(entry) {
 function undo() {
   const entry = history.pop();
   if (!entry) { showToast('Nothing to undo'); return; }
+  writeUndo();
   future.push(snapshot());
   restore(entry);
   commit();
@@ -330,6 +390,7 @@ function redo() {
   const entry = future.pop();
   if (!entry) { showToast('Nothing to redo'); return; }
   history.push(snapshot());
+  writeUndo();
   restore(entry);
   commit();
 }
@@ -687,6 +748,18 @@ function renderGrid() {
   const isToday = currentDate === dateKey(Date.now());
   const mins = minutesOfDay();
 
+  // On a phone one square is ~13px tall — a one-square block cannot fit its
+  // own name, so those blocks drop the label and keep the inspector.
+  const slotH = el.planTracks[0] ? el.planTracks[0].getBoundingClientRect().height / HALF : 0;
+  const tiny = slotH > 0 && slotH < 20;
+
+  // Roving tabindex needs an entry point: with nothing focused, the first
+  // block of the day holds the tab stop, so Tab can walk into the grid.
+  if (!focusedId) {
+    const sorted = [...blocks()].sort((a, b) => a.startMin - b.startMin);
+    focusedId = sorted[0]?.id || '';
+  }
+
   for (const col of [0, 1]) {
     const track = el.planTracks[col];
     if (!track) continue;
@@ -707,7 +780,7 @@ function renderGrid() {
       const rowEnd = Math.ceil(to / SLOT_MIN);
       if (rowEnd <= rowStart) continue;
       track.appendChild(blockEl(b, rowStart, rowEnd - rowStart, map,
-        b.startMin >= col * COL_MIN, b.endMin <= (col + 1) * COL_MIN));
+        b.startMin >= col * COL_MIN, b.endMin <= (col + 1) * COL_MIN, tiny));
     }
 
     if (isToday) {
@@ -730,7 +803,7 @@ function renderGrid() {
  * get a resize handle; the join at noon is just the same block carrying on, so
  * dragging there moves it instead of trimming it to the column edge.
  */
-function blockEl(b, row, span, map, first, last) {
+function blockEl(b, row, span, map, first, last, tiny) {
   const act = map.get(b.key);
   const elb = document.createElement('div');
   elb.className = 'grid__block';
@@ -740,10 +813,16 @@ function blockEl(b, row, span, map, first, last) {
   elb.dataset.tone = String(toneOf(b.key));
   if (b.id === selectedId) elb.classList.add('is-selected');
   if (span < 2) elb.classList.add('is-short');
+  if (tiny && span < 2) elb.classList.add('is-tiny');
   if (!first) elb.classList.add('is-continued');
   elb.style.setProperty('--row', String(row));
   elb.style.setProperty('--span', String(span));
   elb.title = `${b.label} · ${blockRangeLabel(b)}`;
+  // Keyboard users get the grid too: one block holds the tab stop (roving
+  // tabindex), arrows walk the day, Enter picks the block for the inspector.
+  elb.tabIndex = b.id === focusedId ? 0 : -1;
+  elb.setAttribute('role', 'button');
+  elb.setAttribute('aria-label', `${b.label}, ${blockRangeLabel(b)}`);
   const parts = [
     '<span class="grid__grip" data-handle="move" aria-hidden="true"></span>',
   ];
@@ -859,6 +938,27 @@ function renderPicker() {
     updateGridHint();
   });
   slot.appendChild(erase);
+
+  // The brush lock is a touch-only tool: with a mouse, dragging already paints.
+  if (COARSE_POINTER) {
+    const lock = document.createElement('button');
+    lock.type = 'button';
+    lock.className = 'pick pick--lock' + (brushLock ? ' is-on' : '');
+    lock.id = 'planBrushLock';
+    lock.setAttribute('aria-pressed', String(brushLock));
+    lock.title = 'Paint by dragging your finger — page scrolling pauses while this is on';
+    lock.innerHTML = `<span class="pick__dot"></span><span class="pick__label">Brush ${brushLock ? 'on' : 'off'}</span>`;
+    lock.addEventListener('click', () => {
+      brushLock = !brushLock;
+      document.body.classList.toggle('paint-lock', brushLock);
+      renderPicker();
+      updateGridHint();
+      showToast(brushLock
+        ? 'Brush on — drag to paint, page scrolls again when it is off'
+        : 'Brush off — taps paint, drags scroll');
+    });
+    slot.appendChild(lock);
+  }
 }
 
 /**
@@ -907,7 +1007,9 @@ function updateGridHint() {
     return;
   }
   hint.textContent = COARSE_POINTER
-    ? `Tap a square to paint ${a.label.toLowerCase()}. Tap a block to edit it.`
+    ? (brushLock
+      ? `Brush on — drag across the grid to paint ${a.label.toLowerCase()}. Tap a block to edit it.`
+      : `Tap a square to paint ${a.label.toLowerCase()}, or turn Brush on to drag. Tap a block to edit it.`)
     : `Drag across the grid to fill every square you cross with ${a.label.toLowerCase()}.`;
 }
 
@@ -921,11 +1023,13 @@ function renderNow() {
 
   if (!blocks().length) {
     bar.hidden = true;
-    if (el.planStart) el.planStart.disabled = true;
+    // The button stays live even with an empty day — clicking it explains
+    // what to do next, which beats a silently dead primary action.
+    if (el.planStart) el.planStart.disabled = false;
     return;
   }
   bar.hidden = false;
-  if (el.planStart) el.planStart.disabled = !(cur || next);
+  if (el.planStart) el.planStart.disabled = false;
 
   const label = cur ? 'Now' : (isToday ? 'Next up' : 'Starts');
   const value = cur || next;
@@ -934,7 +1038,6 @@ function renderNow() {
   // nothing instead of printing two dashes in the middle of the card.
   if (!value) {
     bar.hidden = true;
-    if (el.planStart) el.planStart.disabled = true;
     return;
   }
 
@@ -1093,10 +1196,11 @@ function overGrid(x, y) {
  * The range is always painted from the blocks the day started the drag with,
  * so dragging back and forth lands on the same result every time.
  */
-function paintRangeTo(fromSlot, toSlot) {
-  if (!drag) return;
+function paintRangeTo(fromSlot, toSlot, d) {
+  d = d || drag;
+  if (!d) return;
   const activity = brushActivity();
-  current.blocks = paintRange(drag.base, fromSlot, toSlot, activity);
+  current.blocks = paintRange(d.base, fromSlot, toSlot, activity);
   renderGrid();
   renderHeader();
 }
@@ -1121,6 +1225,7 @@ function onPointerDown(e) {
       drag = { mode: 'resize', blockId: b.id, edge: handle.dataset.handle, base: blocks(), last: null };
     }
     capture(e);
+    bindDragWindow();
     return;
   }
 
@@ -1131,11 +1236,45 @@ function onPointerDown(e) {
     // A press on a block may turn into a drag that repaints it. If it never
     // moves, it is a click and the block gets picked instead.
     drag = { mode: 'maybe', anchorSlot: slot, currentSlot: slot, base: blocks(), blockId: blockEl.dataset.id, moved: false };
+  } else if (e.pointerType === 'touch' && !brushLock) {
+    // A finger that meant to scroll the page starts here too, so the first
+    // paint waits for the lift. A real tap lifts on the same square and
+    // paints it; a scroll moves and is handed back to the browser.
+    drag = { mode: 'paint', anchorSlot: slot, currentSlot: slot, base: blocks(), moved: false, deferred: true, x: e.clientX, y: e.clientY };
   } else {
     drag = { mode: 'paint', anchorSlot: slot, currentSlot: slot, base: blocks(), moved: false };
     paintRangeTo(slot, slot);
   }
   capture(e);
+  bindDragWindow();
+}
+
+/* The window listeners exist only while a drag is alive — a permanent
+   pointermove on the window is work on every mouse move for nothing. */
+function bindDragWindow() {
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', cancelDrag);
+}
+
+function unbindDragWindow() {
+  window.removeEventListener('pointermove', onPointerMove);
+  window.removeEventListener('pointerup', onPointerUp);
+  window.removeEventListener('pointercancel', cancelDrag);
+}
+
+/** Nudge the page toward the pointer when a touch-paint reaches an edge. */
+function autoScrollOnEdge(y) {
+  const margin = 72;
+  const step = 14;
+  if (y < margin) window.scrollBy(0, -step);
+  else if (y > window.innerHeight - margin - 16) window.scrollBy(0, step);
+}
+
+/** How far the pointer has drifted from where the gesture began. */
+function dragTravel(e) {
+  if (!drag || drag.x === undefined) return 0;
+  return Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
 }
 
 function capture(e) {
@@ -1145,6 +1284,15 @@ function capture(e) {
 function onPointerMove(e) {
   if (!drag) return;
   if (!overGrid(e.clientX, e.clientY)) { cancelDrag(); return; }
+
+  // A waiting touch: past a small slop it is a scroll, not a paint — give the
+  // gesture back to the browser instead of leaving a painted slot behind.
+  if (drag.deferred && dragTravel(e) > 10) { drag = null; unbindDragWindow(); return; }
+  if (drag.deferred) return;
+
+  // With the brush lock on, a finger painting past the edge of the screen
+  // carries the page with it, so long blocks can run past the fold.
+  if (e.pointerType === 'touch' && brushLock) autoScrollOnEdge(e.clientY);
 
   const slot = slotFromPoint(e.clientX, e.clientY);
   if (slot < 0) return;
@@ -1195,14 +1343,23 @@ function onPointerUp(e) {
   if (!drag) return;
   const d = drag;
   drag = null;
+  unbindDragWindow();
   try { el.planGrid.releasePointerCapture?.(e.pointerId); } catch { /* fine */ }
 
   if (d.mode === 'maybe') {
     // A click, not a drag — pick the block so it can be edited.
     selectedId = d.blockId;
+    focusedId = d.blockId;
     renderGrid();
     renderInspector();
     return;
+  }
+
+  if (d.deferred) {
+    // The tap waited for this lift: paint the one square it landed on.
+    // The drag record is passed along — it was detached above.
+    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) { renderGrid(); return; }
+    paintRangeTo(d.anchorSlot, d.anchorSlot, d);
   }
 
   // Nothing changed — do not litter the history with empty steps.
@@ -1219,6 +1376,7 @@ function cancelDrag() {
   if (!drag) return;
   const d = drag;
   drag = null;
+  unbindDragWindow();
   current.blocks = d.base;
   renderGrid();
   renderHeader();
@@ -1251,6 +1409,7 @@ function actOnBlock(action) {
   if (action === 'delete') {
     next = removeBlock(next, b.id);
     selectedId = '';
+    focusedId = '';
   } else if (action === 'earlier') {
     next = moveBlock(next, b.id, b.startMin - SLOT_MIN);
   } else if (action === 'later') {
@@ -1271,7 +1430,97 @@ function actOnBlock(action) {
   commit();
 }
 
+/* ── the keyboard on the grid ─────────────────────────────── */
+
+/** Put the keyboard on one block: roving tabindex, then real focus. */
+function focusBlock(id) {
+  focusedId = id;
+  const target = el.planGrid?.querySelector(`.grid__block[data-id="${CSS.escape(id)}"]`);
+  if (!target) return;
+  for (const b of el.planGrid.querySelectorAll('.grid__block')) {
+    if (b !== target) b.tabIndex = -1;
+  }
+  target.tabIndex = 0;
+  target.focus();
+}
+
+/** Walk the day in time order — the two columns read as one column here. */
+function focusSiblingBlock(step) {
+  const sorted = [...blocks()].sort((a, b) => a.startMin - b.startMin);
+  if (!sorted.length) return;
+  const i = sorted.findIndex(x => x.id === focusedId);
+  const next = sorted[i < 0 ? 0 : clamp(i + step, 0, sorted.length - 1)];
+  focusBlock(next.id);
+}
+
+/** Create a one-hour block in the first free hour, starting from "now". */
+function addBlock() {
+  const busy = blocks();
+  const taken = (s, e) => busy.some(b => s < b.endMin && e > b.startMin);
+  const isToday = currentDate === dateKey(Date.now());
+  const from = isToday ? Math.ceil(minutesOfDay() / SLOT_MIN) * SLOT_MIN : 8 * 60;
+  let start = -1;
+  for (let s = from; s + 60 <= DAY_MIN; s += SLOT_MIN) if (!taken(s, s + 60)) { start = s; break; }
+  if (start < 0) {
+    for (let s = 0; s + 60 <= DAY_MIN; s += SLOT_MIN) if (!taken(s, s + 60)) { start = s; break; }
+  }
+  if (start < 0) { showToast('No free hour left in the day'); return; }
+  const a = brushActivity() || { key: 'self_study', label: 'Self study', kind: 'study' };
+  const nb = { id: uid('b'), key: a.key, label: a.label, kind: a.kind, startMin: start, endMin: start + 60 };
+  remember();
+  current.blocks = mergeBlocks([...busy, nb]);
+  selectedId = nb.id;
+  focusedId = nb.id;
+  commit();
+  focusBlock(nb.id);
+}
+
 /* ── events ───────────────────────────────────────────────── */
+
+/**
+ * The one small question this page asks in its own voice — a styled dialog
+ * instead of a browser prompt, which banners the URL in an installed app.
+ */
+function askText({ title, sub, placeholder, ok }) {
+  return new Promise((resolve) => {
+    const d = el.askDialog;
+    if (!d || typeof d.showModal !== 'function') {
+      // No dialog support — the native prompt is the honest fallback.
+      resolve(window.prompt(title));
+      return;
+    }
+    $('askTitle').textContent = title;
+    if ($('askSub')) $('askSub').textContent = sub || '';
+    if (el.askOk) el.askOk.textContent = ok || 'OK';
+    if (el.askInput) {
+      el.askInput.value = '';
+      el.askInput.placeholder = placeholder || '';
+    }
+    const onOk = (e) => {
+      e.preventDefault();
+      finish(el.askInput?.value ?? '');
+    };
+    const onCancel = () => finish(null);
+    const onKey = (e) => { if (e.key === 'Escape') finish(null); };
+    function finish(value) {
+      el.askForm?.removeEventListener('submit', onOk);
+      el.askCancel?.removeEventListener('click', onCancel);
+      el.askClose?.removeEventListener('click', onCancel);
+      d.removeEventListener('cancel', onKey);
+      d.removeEventListener('close', onCloseEvent);
+      if (d.open) d.close();
+      resolve(value);
+    }
+    function onCloseEvent() { finish(null); }  // Escape / backdrop close paths
+    el.askForm?.addEventListener('submit', onOk);
+    el.askCancel?.addEventListener('click', onCancel);
+    el.askClose?.addEventListener('click', onCancel);
+    d.addEventListener('cancel', onKey);
+    d.addEventListener('close', onCloseEvent);
+    d.showModal();
+    setTimeout(() => el.askInput?.focus(), 40);
+  });
+}
 
 function bindEvents() {
   el.planPrev?.addEventListener('click', () => goToDate(shiftKey(currentDate, -1)));
@@ -1281,25 +1530,55 @@ function bindEvents() {
   el.planUndo?.addEventListener('click', undo);
   el.planRedo?.addEventListener('click', redo);
 
-  // The grid: press, drag, fill.
+  // The grid: press, drag, fill. The window-side listeners are attached only
+  // while a drag is alive (bindDragWindow) — see onPointerDown.
   el.planGrid?.addEventListener('pointerdown', onPointerDown);
   el.planGrid?.addEventListener('pointermove', onPointerMove);
   el.planGrid?.addEventListener('pointerup', onPointerUp);
   el.planGrid?.addEventListener('pointercancel', cancelDrag);
-  window.addEventListener('pointermove', onPointerMove);
-  window.addEventListener('pointerup', onPointerUp);
-  window.addEventListener('pointercancel', cancelDrag);
 
-  // Right-click on a block clears it.
+  // Keyboard on the grid: arrows walk the blocks, Enter picks one for the
+  // inspector, Delete removes it (with the same confirm a right-click gets).
+  el.planGrid?.addEventListener('keydown', (e) => {
+    const elb = e.target.closest?.('.grid__block');
+    if (!elb) return;
+    const b = blocks().find(x => x.id === elb.dataset.id);
+    if (!b) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      selectedId = b.id;
+      renderGrid();
+      renderInspector();
+      return;
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      if (!window.confirm(`Delete "${b.label}" (${blockRangeLabel(b)})?`)) return;
+      remember();
+      current.blocks = removeBlock(blocks(), b.id);
+      if (selectedId === b.id) selectedId = '';
+      focusedId = '';
+      commit();
+      return;
+    }
+    const dir = (e.key === 'ArrowDown' || e.key === 'ArrowRight') ? 1
+      : (e.key === 'ArrowUp' || e.key === 'ArrowLeft') ? -1 : 0;
+    if (dir) { e.preventDefault(); focusSiblingBlock(dir); }
+  });
+
+  // Right-click on a block clears it — with a confirm, because an accidental
+  // right-click should not cost a block without a word.
   el.planGrid?.addEventListener('contextmenu', (e) => {
     const blockEl = e.target.closest('.grid__block');
     if (!blockEl) return;
     e.preventDefault();
     const b = blocks().find(x => x.id === blockEl.dataset.id);
     if (!b) return;
+    if (!window.confirm(`Delete "${b.label}" (${blockRangeLabel(b)})?`)) return;
     remember();
     current.blocks = removeBlock(blocks(), b.id);
     if (selectedId === b.id) selectedId = '';
+    focusedId = '';
     commit();
   });
 
@@ -1321,8 +1600,13 @@ function bindEvents() {
     commit();
   });
 
-  el.planAddActivity?.addEventListener('click', () => {
-    const name = window.prompt('Name this activity');
+  el.planAddActivity?.addEventListener('click', async () => {
+    const name = await askText({
+      title: 'Name this activity',
+      sub: 'It joins the palette and becomes the brush',
+      placeholder: 'e.g. Physics revision',
+      ok: 'Add',
+    });
     if (!name || !name.trim()) return;
     const label = name.trim().slice(0, 40);
     const key = `custom:${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Date.now().toString(36).slice(-4)}`;
@@ -1337,6 +1621,8 @@ function bindEvents() {
     render();
     showToast(`Added "${label}"`);
   });
+
+  el.planAddBlock?.addEventListener('click', addBlock);
 
   el.planClear?.addEventListener('click', () => {
     if (!blocks().length && !tasks().length) { showToast('Nothing to clear'); return; }
@@ -1357,6 +1643,7 @@ function bindEvents() {
   });
 
   el.planStart?.addEventListener('click', () => continueTimetable(currentDate));
+  el.planExport?.addEventListener('click', exportJson);
 
   // Importing a timetable: the button, and dropping a PDF anywhere.
   el.planImport?.addEventListener('click', () => el.planImportFile?.click());
@@ -1655,6 +1942,11 @@ function copyDay(fromDate) {
   if (fromDate === currentDate) { showToast('That is the same day'); return; }
   const from = getPlan(state, fromDate);
   if (!from.blocks.length) { showToast('Nothing planned on that day'); return; }
+  const existing = blocks();
+  if (existing.length
+    && !window.confirm(`Replace the ${existing.length} block${existing.length === 1 ? '' : 's'} already planned for ${labelDate(currentDate, { month: 'long', day: 'numeric' })}?`)) {
+    return;
+  }
   remember();
   current = {
     ...current,
@@ -1668,9 +1960,30 @@ function copyDay(fromDate) {
   showToast('Plan copied');
 }
 
+/** Download the whole store as JSON — the same file the clock's Data tab
+    writes, so either page can re-import it. The landing page promises this
+    export next to the planner, so the planner owns it. */
+function exportJson() {
+  try {
+    const payload = JSON.stringify({ exportedAt: new Date().toISOString(), ...state }, null, 2);
+    const blob = new Blob([payload], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cadence-${dateKey(Date.now())}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    showToast('Data exported');
+  } catch {
+    showToast('Could not export — storage unavailable');
+  }
+}
+
 function continueTimetable(date = dateKey(Date.now())) {
   const p = date === currentDate ? current : getPlan(state, date);
-  if (!p.blocks.length) { showToast('Nothing is planned for that day'); return; }
+  if (!p.blocks.length) { showToast('Nothing planned yet — paint or import a day first'); return; }
   const isToday = date === dateKey(Date.now());
   const mins = minutesOfDay();
   const { current: cur, next } = dayProgress(p.blocks, mins, isToday);
@@ -1689,9 +2002,15 @@ function continueTimetable(date = dateKey(Date.now())) {
 /* ── go ───────────────────────────────────────────────────── */
 
 function init() {
+  // The brush lock starts on for touch (see brushLock above) — the class must
+  // be on <body> before the first gesture, because touch-action is only read
+  // when a gesture begins.
+  if (brushLock) document.body.classList.add('paint-lock');
+
   el.planTracks = [document.querySelector('.grid__track[data-col="0"]'), document.querySelector('.grid__track[data-col="1"]')];
   el.planGutters = [document.querySelector('.grid__gutter[data-col="0"]'), document.querySelector('.grid__gutter[data-col="1"]')];
   buildGutters();
+  readUndo();
   bindEvents();
   render();
 
@@ -1707,6 +2026,42 @@ function init() {
     if (document.visibilityState === 'visible') refresh();
   });
   window.addEventListener('focus', refresh);
+
+  // Another tab moved the store (the plan page and the clock are meant to be
+  // open side by side) — follow it instead of stale-writing over it.
+  window.addEventListener('cadence:store-external', () => { if (!drag) refresh(); });
+
+  // The store fell back to defaults somewhere — say so, the user has a backup
+  // under cadence.store.v1.bad and deserves to know. The notice can also
+  // arrive as an event later (another tab, a focus refresh) — a good load
+  // clears it, so nothing double-toasts.
+  const corrupt = storeErrorNotice();
+  if (corrupt) showToast(corrupt);
+  window.addEventListener('cadence:store-corrupt', (e) => {
+    showToast(e.detail?.message || 'Saved data could not be read — a backup was kept');
+  });
+
+  // The now-line and the "Today" pill are drawn once; a planner left open for
+  // hours would keep showing this morning. Refresh gently, and when midnight
+  // passes, offer the new day instead of silently editing the old one.
+  let rolloverPrompted = false;
+  setInterval(() => {
+    if (drag || document.hidden) return;
+    const today = dateKey(Date.now());
+    if (today !== currentDate && !rolloverPrompted && current.blocks.length) {
+      rolloverPrompted = true;
+      showToast('A new day has started', {
+        action: 'Switch',
+        onAction: () => goToDate(today),
+      });
+    }
+    renderGrid();
+    renderNow();
+    if (focusedId) {
+      const back = el.planGrid?.querySelector(`.grid__block[data-id="${CSS.escape(focusedId)}"]`);
+      back?.focus({ preventScroll: true });
+    }
+  }, 60000);
 }
 
 init();

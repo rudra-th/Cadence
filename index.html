@@ -203,12 +203,12 @@
           <span class="film__now-sub">until the next block</span>
         </div>
 
-        <div class="film__bottom" aria-hidden="true">
-          <div class="film__chapters" role="tablist" aria-label="Film acts">
-            <span data-ch="0" role="tab" aria-selected="false"><b>01</b> Shape</span>
-            <span data-ch="1" role="tab" aria-selected="false"><b>02</b> Plan</span>
-            <span data-ch="2" role="tab" aria-selected="false"><b>03</b> Now</span>
-            <span data-ch="3" role="tab" aria-selected="false"><b>04</b> Finish</span>
+        <div class="film__bottom">
+          <div class="film__chapters" aria-label="Film acts">
+            <button data-ch="0" type="button" aria-label="Jump to chapter 1: Shape"><b>01</b> Shape</button>
+            <button data-ch="1" type="button" aria-label="Jump to chapter 2: Plan"><b>02</b> Plan</button>
+            <button data-ch="2" type="button" aria-label="Jump to chapter 3: Now"><b>03</b> Now</button>
+            <button data-ch="3" type="button" aria-label="Jump to chapter 4: Finish"><b>04</b> Finish</button>
           </div>
           <div class="film__track"><i id="filmBar"></i></div>
         </div>
@@ -398,7 +398,7 @@
             </div>
             <div class="cell__body">
               <h3>Quiet by default.</h3>
-              <p>No analytics, no trackers, no notifications shouting for attention.</p>
+              <p>No analytics, no trackers, no notifications unless you ask for them.</p>
             </div>
           </article>
         </div>
@@ -421,7 +421,7 @@
 
         <div class="day__board reveal">
           <div class="day__meta">
-            <span>Tue · 24 Oct</span>
+            <span id="dayDate">Tue · 24 Oct</span>
             <span>06:00 → 24:00</span>
             <span class="day__nowlabel">Now · 10:04</span>
           </div>
@@ -509,6 +509,9 @@
         </div>
       </div>
 
+      <!-- The marquee is decorative and aria-hidden; say it once where AT can hear it. -->
+      <p class="sr-only">Plan the day — run the day</p>
+
       <div class="cta__body">
         <h2>Start with<br>one <em>block.</em></h2>
         <p>Today is already here. Give it a shape — and let the clock carry the rest.</p>
@@ -543,7 +546,7 @@
         </div>
 
         <div class="footer__col">
-          <h4>Use</h4>
+          <h3>Use</h3>
           <ul>
             <li><a href="./plan.html">Planner</a></li>
             <li><a href="./clock.html">The clock</a></li>
@@ -552,7 +555,7 @@
         </div>
 
         <div class="footer__col">
-          <h4>Read</h4>
+          <h3>Read</h3>
           <ul>
             <li><a href="#privacy">Privacy</a></li>
             <li><a href="#day">A day</a></li>
@@ -580,5 +583,6 @@
   </script>
   <script src="./assets/vendor/lenis.min.js" defer></script>
   <script src="./assets/js/landing-experience.js" defer></script>
+  <script defer src="assets/js/swreg.js"></script>
 </body>
 </html>

@@ -10,10 +10,15 @@
  *    that fails falls back to the page it asked for, then to the landing
  *    page — never to a blank screen.
  *  • Static assets: cache-first with background revalidation (stale-while-
- *    revalidate) — instant loads, quiet updates.
+ *    revalidate) — instant loads, quiet updates. The same runtime path
+ *    covers the PDF-export vendor libs (html2canvas, jsPDF) below: they are
+ *    ~565 KB and only needed when a user actually exports a PDF, so they
+ *    are not precached — planpage.js loads them on demand, and the first
+ *    export puts them in the runtime cache, offline after that.
  */
 
-const VERSION = 'v1.5.0';
+const VERSION = 'v1.6.0';
+// VERSION must be bumped on every deploy — assets are not URL-versioned.
 const CACHE = `cadence-${VERSION}`;
 
 const SHELL = [
@@ -42,8 +47,8 @@ const SHELL = [
   './assets/js/audio.js',
   './assets/js/pdf.js',
   './assets/js/timetable.js',
-  './assets/vendor/html2canvas.min.js',
-  './assets/vendor/jspdf.umd.min.js',
+  // Not precached: the PDF-export vendor libs (~565 KB together) load on
+  // demand from planpage.js and land in the runtime cache on first use.
   './assets/fonts/inter-latin.woff2',
   './assets/fonts/inter-latin-ext.woff2',
   './assets/fonts/jetbrains-mono-latin.woff2',

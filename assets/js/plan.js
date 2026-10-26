@@ -256,9 +256,11 @@ export function planSummary(plan) {
   let study = 0;
   let rest = 0;
   let life = 0;
+  let sleep = 0;
   for (const b of blocks) {
     const mins = b.endMin - b.startMin;
-    if (b.kind === 'study') study += mins;
+    if (b.key === 'sleep') sleep += mins;   // reported on its own — a real number, not a dead card
+    else if (b.kind === 'study') study += mins;
     else if (b.kind === 'rest') rest += mins;
     else life += mins;
   }
@@ -267,6 +269,7 @@ export function planSummary(plan) {
     blocks: blocks.length,
     studyMin: study,
     restMin: rest,
+    sleepMin: sleep,
     lifeMin: life,
     plannedMin: study + rest + life,
     freeMin: Math.max(0, DAY_MIN - study - rest - life),

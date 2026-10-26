@@ -35,6 +35,8 @@
 </head>
 <body>
 
+<a class="skip" href="#clockMain">Skip to the clock</a>
+
 <div class="aurora" aria-hidden="true">
   <span class="aurora__blob aurora__blob--a"></span>
   <span class="aurora__blob aurora__blob--b"></span>
@@ -76,7 +78,7 @@
   </header>
 
   <!-- ══════════ The clock ══════════ -->
-  <main class="stage">
+  <main class="stage" id="clockMain">
 
     <div class="stage__clock">
 
@@ -183,7 +185,7 @@
 </div>
 
 <!-- ══════════ Quick duration popover (Timer mode) ══════════ -->
-<div class="popover" id="durationPop" hidden role="dialog" aria-label="Set duration">
+<div class="popover" id="durationPop" hidden role="dialog" aria-modal="true" aria-label="Set duration">
   <div class="popover__head">
     <span class="popover__title">Duration</span>
     <button class="icon-btn icon-btn--sm" id="durationClose" type="button" aria-label="Close">
@@ -572,5 +574,6 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script type="module" src="./assets/js/clock.js"></script>
+<script defer src="assets/js/swreg.js"></script>
 </body>
 </html>

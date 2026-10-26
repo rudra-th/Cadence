@@ -246,6 +246,48 @@ export function startOfDay(ts) {
   return d.getTime();
 }
 
+/* ── caps ────────────────────────────────────────────────── */
+
+/**
+ * The store grows on every use, so it is held inside two hard limits. Both
+ * are applied on load — and therefore also on every merged write, which
+ * re-reads the disk — so each page start quietly shrinks the store back
+ * down without a maintenance page.
+ *
+ *   • sessions — the log is capped at the most recent 200 entries, ordered
+ *     by their `start` timestamp. The stats only ever look at the last
+ *     seven days and at lifetime totals, so rows past 200 are noise, not
+ *     history.
+ *   • day plans — one entry per date inside `state.plans`, pruned after
+ *     120 days. Three things are never pruned: the `saved` plan templates
+ *     (a separate collection, already capped at twelve), today's plan, and
+ *     any plan carrying imported timetable data (`imported`) — that last
+ *     one is irreplaceable, because the user may no longer have the file
+ *     to re-import. Future dates are kept too, for plans made ahead.
+ */
+
+const MAX_SESSIONS = 200;
+const PLAN_TTL_DAYS = 120;
+
+function capSessions(state) {
+  if (state.sessions.length <= MAX_SESSIONS) return;
+  // A live session is still being written to as the timer runs, so it
+  // survives the cap even if, after an import, it falls outside the
+  // newest 200 by start time.
+  const live = state.sessions.filter(s => s.live);
+  const kept = state.sessions.slice().sort((a, b) => b.start - a.start).slice(0, MAX_SESSIONS);
+  for (const s of live) if (!kept.includes(s)) kept.push(s);
+  state.sessions = kept;
+}
+
+function pruneOldPlans(state, now = Date.now()) {
+  const cutoff = dateKey(startOfDay(now) - PLAN_TTL_DAYS * DAY_MS);
+  for (const date of Object.keys(state.plans)) {
+    // Date keys are YYYY-MM-DD, so string order is time order.
+    if (date < cutoff && !state.plans[date].imported) delete state.plans[date];
+  }
+}
+
 /* ── store ───────────────────────────────────────────────── */
 
 function deepMerge(base, patch) {
@@ -262,11 +304,47 @@ function deepMerge(base, patch) {
   return patch === undefined ? base : patch;
 }
 
+/** Where the unreadable store is parked, latest one only. */
+const BAD_KEY = 'cadence.store.v1.bad';
+
+/**
+ * The unreadable store is kept aside, not thrown away. A parse error here
+ * would otherwise wipe the user's whole history at the first hint of a
+ * corrupt byte, so the raw string is copied to a quarantine key — the
+ * previous quarantine, if any, is overwritten — and pages are told about
+ * it through `cadence:store-corrupt` so they can toast.
+ */
+function quarantine(raw) {
+  if (!raw) return;
+  try { localStorage.setItem(BAD_KEY, raw); } catch { /* quota, private mode */ }
+  // Remembered for the pages: the event below is missed when load() runs
+  // during module import — the page's own listeners attach only at init —
+  // so they also ask storeErrorNotice() once they are ready.
+  corruptMessage = "Saved data couldn't be read — a backup was kept.";
+  window.dispatchEvent(new CustomEvent('cadence:store-corrupt', {
+    detail: { message: corruptMessage },
+  }));
+}
+
+/** The corrupt-data notice from this boot's load(), or null once a good load succeeded. */
+export function storeErrorNotice() {
+  return corruptMessage;
+}
+
+let corruptMessage = null;
+
 export function load() {
+  let raw = null;
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return structuredClone(DEFAULTS);
+    raw = localStorage.getItem(KEY);
+    if (!raw) { corruptMessage = null; return structuredClone(DEFAULTS); }
     const parsed = JSON.parse(raw);
+    // A store that is not a plain object (null, a list, a bare number) is
+    // corruption like any other — it gets the same quarantine treatment
+    // instead of degrading quietly into defaults.
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('store shape mismatch');
+    }
     const merged = deepMerge(structuredClone(DEFAULTS), parsed);
     merged.settings = sanitizeSettings(parsed.settings);
     merged.sessions = sanitizeSessions(parsed.sessions);
@@ -277,9 +355,13 @@ export function load() {
     merged.plans = sanitizePlans(parsed.plans);
     merged.activities = sanitizeActivities(parsed.activities);
     merged.saved = sanitizeSavedPlans(parsed.saved);
+    corruptMessage = null;   // a good read wipes the notice
+    capSessions(merged);
+    pruneOldPlans(merged);
     return merged;
   } catch (err) {
     console.warn('[Cadence] store unreadable, starting fresh', err);
+    quarantine(raw);
     return structuredClone(DEFAULTS);
   }
 }
@@ -308,20 +390,29 @@ export function persistFailed() {
  * take the rest of the store fresh from the disk.
  */
 function writeKeys(state, keys) {
-  try {
-    const disk = load();
-    const merged = {};
-    for (const k of STORE_KEYS) {
-      merged[k] = keys.includes(k) ? state[k] : disk[k];
+  const run = () => {
+    try {
+      const disk = load();
+      const merged = {};
+      for (const k of STORE_KEYS) {
+        merged[k] = keys.includes(k) ? state[k] : disk[k];
+      }
+      localStorage.setItem(KEY, JSON.stringify(merged));
+      persistOk = true;
+      return true;
+    } catch (err) {
+      console.warn('[Cadence] could not persist', err);
+      persistOk = false;
+      return false;
     }
-    localStorage.setItem(KEY, JSON.stringify(merged));
-    persistOk = true;
-    return true;
-  } catch (err) {
-    console.warn('[Cadence] could not persist', err);
-    persistOk = false;
-    return false;
-  }
+  };
+  // The read-merge-write above races between tabs: two pages can load the
+  // disk at once and the slower write silently drops the other's keys.
+  // Web Locks serialises the whole thing across tabs; without support we
+  // fall back to the direct write as before. An uncontended lock resolves
+  // within a microtask, so the immediate "Now" paths are barely delayed.
+  if (navigator.locks?.request) return navigator.locks.request(KEY, run);
+  return Promise.resolve(run());
 }
 
 /* Batching: every writer shares one pending batch — one timer, one set of
@@ -416,6 +507,7 @@ export function addSession(state, {
   };
   if (live) session.live = true;
   state.sessions.push(session);
+  capSessions(state);
   saveKeys(state, ['sessions']);
   return session;
 }
@@ -570,4 +662,32 @@ export function computeStats(state) {
     totalMs: studied.reduce((a, s) => a + s.durationMs, 0),
     totalCount: studied.length,
   };
+}
+
+/* ── cross-tab sync ──────────────────────────────────────── */
+
+/**
+ * Two tabs share one store key, and a write in one is invisible to the
+ * other — the clock here, the plan there. The `storage` event fires in
+ * every tab except the one that wrote, so this listens for it and hands
+ * out `cadence:store-external`.
+ *
+ * The store itself holds no state — every function takes the page's
+ * `state` object as an argument, and each page keeps its own (`let state
+ * = load()` at the top of clock.js and planpage.js). So this can only
+ * announce the change: a page that hears the event must reassign its own
+ * reference (`state = load()`) and re-render. Nothing else sees the new
+ * data, and mutating the old object would not be enough — load() builds a
+ * fresh one.
+ *
+ * Only the store key counts here. The live-session handoff key
+ * (`cadence.runtime.v1`) is watched by runtime.js on its own, and the
+ * quarantine copy (`cadence.store.v1.bad`) is written by this very module
+ * — neither should make pages reload and re-render.
+ */
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== KEY) return;
+    window.dispatchEvent(new CustomEvent('cadence:store-external'));
+  });
 }

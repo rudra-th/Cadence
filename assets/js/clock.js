@@ -16,7 +16,7 @@ import {
   DEFAULTS, load, save, saveNow, saveKeys, saveKeysNow, clearStore,
   addSession, updateSession, removeSession, recentSessions, computeStats,
   closeOrphanSessions, isoDateInput, uid, getPlan, setPlan,
-  removeSavedPlan,
+  removeSavedPlan, storeErrorNotice,
   sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities, sanitizeSavedPlans,
 } from './store.js';
 import { importTimetable as importTimetableFile, importErrorMessage } from './timetable-import.js';
@@ -169,6 +169,7 @@ let lastRingVisible = null;
 let lastTodayText = '';
 let lastAgendaSig = '';
 let agendaLive = null;      // the block the card is counting through right now
+let popoverReturnFocus = null;  // where focus goes back when the popover shuts
 let lastTickSecond = -1;
 let toastTimer = null;
 let lastFocusTarget = null;
@@ -1301,8 +1302,23 @@ function renderAgenda() {
   const hasWork = tasks.length > 0 || subjects.length > 0;
 
   if (!hasBlocks && !hasWork) {
-    if (!el.agenda.hidden) el.agenda.hidden = true;
-    lastAgendaSig = '';
+    // An empty day keeps the card: it is the one place on this page that
+    // shows the way into the planner, and a fresh install has no other way
+    // of finding it. The signature keeps the idle ticks from rebuilding it.
+    if (lastAgendaSig === 'empty') return;
+    lastAgendaSig = 'empty';
+    el.agenda.hidden = false;
+    el.agenda.dataset.state = 'empty';
+    el.agenda.dataset.live = 'false';
+    el.agendaState.textContent = 'Ready when you are';
+    el.agendaCount.textContent = 'Nothing planned for today';
+    el.agendaSession.hidden = true;
+    el.agendaProgress.hidden = true;
+    el.agendaBar.style.transform = 'scaleX(0)';
+    el.agendaWork.hidden = true;
+    el.agendaBody.dataset.single = 'true';
+    el.agendaContinue.hidden = true;
+    el.agendaFoot.dataset.single = 'true';
     agendaLive = null;
     return;
   }
@@ -2142,7 +2158,11 @@ function trapFocus(e) {
 }
 
 function switchTab(name) {
-  el.drawerTabs.forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+  el.drawerTabs.forEach(t => {
+    const on = t.dataset.tab === name;
+    t.setAttribute('aria-selected', String(on));
+    t.tabIndex = on ? 0 : -1;   // roving tabindex: one tab stop for the tablist
+  });
   el.panels.forEach(p => { p.hidden = p.dataset.panel !== name; });
   if (name === 'data') renderStats();
   if (name === 'plan') renderPlanPanel();
@@ -2152,6 +2172,7 @@ function openPopover() {
   if (T.mode !== 'timer') return;
   if (T.sessionId) return;              // a plan block owns its length
   if (!el.settingsPanel.hidden) closeDrawer();
+  popoverReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   el.durationInput.value = Math.max(1, Math.round(T.target / 60000));
   el.durationPop.hidden = false;
   positionPopover();
@@ -2172,7 +2193,11 @@ function positionPopover() {
 }
 
 function closePopover() {
+  if (el.durationPop.hidden) return;
   el.durationPop.hidden = true;
+  // A role=dialog that keeps focus owes the page focus back.
+  popoverReturnFocus?.focus?.();
+  popoverReturnFocus = null;
 }
 
 function openAddDialog() {
@@ -2290,6 +2315,27 @@ function bindEvents() {
   el.closeSettings.addEventListener('click', closeDrawer);
   el.scrim.addEventListener('click', closeDrawer);
   el.drawerTabs.forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+
+  // A tablist promises arrow keys: the tabs walk with Left/Right and
+  // Home/End, activating as they go, and only the chosen one holds the tab.
+  document.querySelector('.drawer__tabs')?.addEventListener('keydown', (e) => {
+    const i = el.drawerTabs.indexOf(document.activeElement);
+    if (i < 0) return;
+    let n = null;
+    if (e.key === 'ArrowRight') n = (i + 1) % el.drawerTabs.length;
+    else if (e.key === 'ArrowLeft') n = (i - 1 + el.drawerTabs.length) % el.drawerTabs.length;
+    else if (e.key === 'Home') n = 0;
+    else if (e.key === 'End') n = el.drawerTabs.length - 1;
+    if (n === null) return;
+    e.preventDefault();
+    switchTab(el.drawerTabs[n].dataset.tab);
+    el.drawerTabs[n].focus();
+  });
+
+  // Normalize the roving tabindex on load: the markup marks Timer as the
+  // selected tab but leaves every one of them stoppable until a first switch.
+  const initialTab = el.drawerTabs.find(t => t.getAttribute('aria-selected') === 'true') || el.drawerTabs[0];
+  if (initialTab) switchTab(initialTab.dataset.tab);
 
   // Add dialog
   el.addSubmit.addEventListener('click', submitAdd);
@@ -2430,6 +2476,24 @@ function onKeyDown(e) {
     return;
   }
 
+  // The duration popover is a modal dialog: Tab stays inside it.
+  if (!el.durationPop.hidden && e.key === 'Tab') {
+    const nodes = [...el.durationPop.querySelectorAll('button, input, select, [href], [tabindex]:not([tabindex="-1"])')]
+      .filter(n => !n.disabled && n.offsetParent !== null);
+    if (nodes.length) {
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    return;
+  }
+
+  // A dialog (or anything focused inside one) silences the shortcuts too —
+  // a stray P must never walk the tab away from a decision the user is
+  // in the middle of making.
+  if (e.target.closest?.('dialog, [role="dialog"]')) return;
+
   if (typing || el.addDialog.open) return;
   // While the drawer is open only Escape does anything — the shortcuts must
   // never fire behind an open panel.
@@ -2462,24 +2526,10 @@ function onKeyDown(e) {
    PWA bootstrap
    ═══════════════════════════════════════════════════════════ */
 
-async function registerServiceWorker() {
-  if (!('serviceWorker' in navigator)) return;
-  if (location.protocol === 'file:') return;
-  try {
-    const reg = await navigator.serviceWorker.register('./sw.js', { scope: './' });
-    reg.addEventListener('updatefound', () => {
-      const sw = reg.installing;
-      if (!sw) return;
-      sw.addEventListener('statechange', () => {
-        if (sw.state === 'installed' && navigator.serviceWorker.controller) {
-          showToast('Update ready — reopen to apply');
-        }
-      });
-    });
-  } catch (err) {
-    console.warn('[Cadence] service worker registration failed', err);
-  }
-}
+/* The service worker is registered by assets/js/swreg.js on every page, so
+   the landing and the planner warm it up too — and the "Update ready" toast
+   there now carries a Reload button instead of telling the person to reopen
+   the app (a force-kill on iOS). */
 
 function detectPlatform() {
   const ua = navigator.userAgent;
@@ -2568,9 +2618,48 @@ function init() {
   render();
 
   detectPlatform();
-  registerServiceWorker();
   startPlanLoop();
   planTick();
+
+  // The store moved underneath us — the plan page painted or copied a day in
+  // another tab. Re-read it; the rendering loop picks the new state up on its
+  // next tick, and the redraws here make idle moments feel instant. The live
+  // timer is untouched — it lives in memory and runtime.js.
+  window.addEventListener('cadence:store-external', () => {
+    state = load();
+    stats = computeStats(state);
+    renderStats();
+    renderToday();
+    renderPlanPanel();
+  });
+
+  // The store fell back to defaults somewhere — say so; there is a backup
+  // under cadence.store.v1.bad and the person deserves to know. The notice
+  // can also arrive as an event after this init — both paths show it once,
+  // because a good load clears the notice.
+  const corrupt = storeErrorNotice();
+  if (corrupt) showToast(corrupt);
+  window.addEventListener('cadence:store-corrupt', (e) => {
+    showToast(e.detail?.message || 'Saved data could not be read — a backup was kept');
+  });
+
+  // iOS never reflows a fixed container for the keyboard, so an input near
+  // its bottom can hide behind it. Bring the focused field to view — the
+  // scrollable ancestor (drawer body, popover) is what actually moves.
+  window.addEventListener('focusin', (e) => {
+    const t = e.target;
+    if (!(t instanceof HTMLElement) || !t.matches('input, select, textarea')) return;
+    if (!t.closest('.drawer, .popover')) return;
+    setTimeout(() => t.scrollIntoView({ block: 'center', behavior: 'smooth' }), 350);
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', () => {
+      const t = document.activeElement;
+      if (t instanceof HTMLElement && t.matches('input, select, textarea') && t.closest('.drawer, .popover')) {
+        t.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    });
+  }
 
   // First interaction unlocks audio on browsers that require a gesture.
   const unlock = () => { sound.unlock(); window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
