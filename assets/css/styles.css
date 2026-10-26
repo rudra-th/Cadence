@@ -673,6 +673,9 @@ svg { display: block; }
 .agenda[data-state="empty"] .agenda__body {
   display: none;
 }
+/* The bottom line would only repeat the card's headline; the card is the
+   fuller of the two, so the line stands down. */
+.stage:has(.agenda[data-state="empty"]) .today { display: none; }
 
 .agenda__session {
   display: grid;
@@ -1562,6 +1565,15 @@ body[data-focus="true"] #settingsBtn:focus-visible { opacity: 1; }
     gap: clamp(28px, 4vw, 56px);
   }
   .agenda { flex: none; margin-top: 0; }
+
+  /* An empty day is not a real plan — it must not pull the clock into the
+     beside-the-card arrangement meant for one. The clock stays centered
+     exactly as before, and the compact card drops below the controls in
+     its place. */
+  .stage:has(.agenda[data-state="empty"]) {
+    flex-direction: column;
+  }
+  .stage:has(.agenda[data-state="empty"]) .agenda { margin-top: 20px; }
 }
 
 /* Short viewports */
@@ -2453,7 +2465,10 @@ body.planpage .grid__block[data-kind="life"] .grid__blockdur {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: 1;
+  /* flex-basis is the picker's breathing room: an extra tool button (Add
+     block) must never squeeze the chips into one-per-row stacking. Below
+     the basis the toolbar's own wrap puts the tools on their own row. */
+  flex: 1 1 232px;
   min-width: 0;
   flex-wrap: wrap;
 }
@@ -2470,6 +2485,11 @@ body.planpage .grid__block[data-kind="life"] .grid__blockdur {
   flex: none;
 }
 .toolbar__erase { display: flex; align-items: center; }
+/* Add block rides as an icon beside Add activity — its full label would
+   starve the picker's row and stack the chips one-per-row. The button's
+   title and aria-label carry the name. */
+#planAddBlock { padding: 0 9px; gap: 0; }
+#planAddBlock .btn__label { display: none; }
 .plan__toolbar .linkbtn { margin-top: 0; }
 
 .picker { display: flex; flex-wrap: wrap; gap: 4px; }
