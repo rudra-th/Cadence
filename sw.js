@@ -17,16 +17,14 @@
  *    export puts them in the runtime cache, offline after that.
  */
 
-const VERSION = 'v1.6.0';
+const VERSION = 'v1.7.0';
 // VERSION must be bumped on every deploy — assets are not URL-versioned.
 const CACHE = `cadence-${VERSION}`;
 
 const SHELL = [
   './',
   './index.html',
-  './clock.html',
   './plan.html',
-  './app.html',
   './manifest.webmanifest',
   './favicon.svg',
   './assets/css/styles.css',
@@ -35,9 +33,7 @@ const SHELL = [
   './assets/vendor/lenis.min.js',
   './assets/fonts/instrument-serif-latin.woff2',
   './assets/fonts/instrument-serif-italic-latin.woff2',
-  './assets/js/clock.js',
   './assets/js/planpage.js',
-  './assets/js/runtime.js',
   './assets/js/timetable-import.js',
   './assets/js/printplan.js',
   './assets/js/store.js',
@@ -103,8 +99,6 @@ self.addEventListener('fetch', (event) => {
         // The page that was asked for first, then the landing page.
         const direct = await cache.match(req, { ignoreSearch: true });
         if (direct) return direct;
-        const app = await cache.match('./app.html');
-        if (app && url.pathname.includes('app')) return app;
         return (await cache.match('./index.html')) || (await cache.match('./')) || null;
       };
       try {
@@ -157,7 +151,7 @@ self.addEventListener('fetch', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = event.notification.data?.url || './clock.html';
+  const target = event.notification.data?.url || './plan.html';
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of all) {

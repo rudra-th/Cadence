@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Cadence — Plan the day. Run the day.</title>
-  <meta name="description" content="Cadence is an offline-first day planner. Paint your day into blocks on a 24-hour grid, then let the clock tell you what's next — one thing at a time. No account, no tracking, nothing leaves your device.">
+  <meta name="description" content="Cadence is an offline-first day planner. Paint your day into 15-minute blocks on a 24-hour grid and see the whole day at a glance. No account, no tracking, nothing leaves your device.">
   <meta name="theme-color" content="#000000">
   <meta name="color-scheme" content="dark">
 
   <!-- Open Graph -->
   <meta property="og:title" content="Cadence — Plan the day. Run the day.">
-  <meta property="og:description" content="Offline-first day planner. Paint your day into blocks on a 24-hour grid, then let the clock tell you what's next — one thing at a time.">
+  <meta property="og:description" content="Offline-first day planner. Paint your day into 15-minute blocks on a 24-hour grid and see the whole day at a glance.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="./index.html">
   <meta property="og:image" content="./assets/icons/icon-512.png">
@@ -18,7 +18,7 @@
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Cadence — Plan the day. Run the day.">
-  <meta name="twitter:description" content="Offline-first day planner. Paint your day into blocks on a 24-hour grid, then let the clock tell you what's next — one thing at a time.">
+  <meta name="twitter:description" content="Offline-first day planner. Paint your day into 15-minute blocks on a 24-hour grid and see the whole day at a glance.">
   <meta name="twitter:image" content="./assets/icons/icon-512.png">
 
   <link rel="manifest" href="./manifest.webmanifest">
@@ -88,9 +88,6 @@
 
       <div class="nav__actions">
         <span class="nav__clock" id="navClock">00:00</span>
-        <a class="btn btn--ghost btn--sm" href="./clock.html">
-          Timer
-        </a>
         <a class="btn btn--primary btn--sm" href="./plan.html">
           <span class="long">Open&nbsp;</span>planner
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -134,7 +131,7 @@
         <div class="fade-up" style="--d:.4s">
           <p class="hero__desc">
             Cadence turns the day into blocks you can actually follow. Paint it once,
-            then let the clock tell you what's next — one thing at a time.
+            then let the plan tell you what's next — one thing at a time.
           </p>
           <div class="hero__actions">
             <a class="btn btn--primary" href="./plan.html">
@@ -143,7 +140,7 @@
                 <path d="M5 12h14M13 6l6 6-6 6"/>
               </svg>
             </a>
-            <a class="btn btn--ghost" href="./clock.html">Start the clock</a>
+            <a class="btn btn--ghost" href="#how">See how it works</a>
           </div>
         </div>
 
@@ -187,7 +184,7 @@
           <article class="film__caption" data-scene="2">
             <div class="film__kicker"><span>Act 03</span><span>Now</span></div>
             <h2>Then stop<br><em>deciding.</em></h2>
-            <p>The clock shows one block at a time. No scrolling, no second-guessing — just the next thing, and how long is left.</p>
+            <p>The day becomes one shape you can read at a glance. No scrolling, no second-guessing — just the next thing.</p>
           </article>
 
           <article class="film__caption" data-scene="3">
@@ -237,7 +234,7 @@
             <h2>Three moves.<br>No <em>ceremony.</em></h2>
           </div>
           <p>
-            A plan you can read in a second, and a clock that only ever asks for
+            A plan you can read in a second, and a grid that only ever asks for
             the next block. Nothing to configure, nothing to maintain.
           </p>
         </div>
@@ -266,10 +263,10 @@
 
           <article class="how__row reveal" style="--d:.06s">
             <span class="how__num">02</span>
-            <h3 class="how__title">Follow the clock.</h3>
+            <h3 class="how__title">Read the day.</h3>
             <p class="how__desc">
-              Start the timer and the page becomes one block, one countdown, one
-              decision. When it ends, the next block is already waiting.
+              The finished grid is one shape: blocks, gaps, and the next thing
+              waiting. No feed, no countdown to manage.
             </p>
             <div class="how__viz" aria-hidden="true">
               <svg viewBox="0 0 190 74" fill="none">
@@ -315,7 +312,7 @@
           </div>
           <p>
             Every part of Cadence exists to get you back to the work. There is no
-            feed, no streak, no gamified guilt — just the day and the clock.
+            feed, no streak, no gamified guilt — just the day, laid out plainly.
           </p>
         </div>
 
@@ -514,7 +511,7 @@
 
       <div class="cta__body">
         <h2>Start with<br>one <em>block.</em></h2>
-        <p>Today is already here. Give it a shape — and let the clock carry the rest.</p>
+        <p>Today is already here. Give it a shape — and let the plan carry the rest.</p>
         <div class="cta__actions">
           <a class="btn btn--dark btn--lg" href="./plan.html">
             Open the planner
@@ -522,7 +519,7 @@
               <path d="M5 12h14M13 6l6 6-6 6"/>
             </svg>
           </a>
-          <a class="btn btn--outline-dark btn--lg" href="./clock.html">Start the clock</a>
+          <a class="btn btn--outline-dark btn--lg" href="#how">How it works</a>
         </div>
         <p class="cta__note">Free · Offline · No account</p>
       </div>
@@ -549,7 +546,6 @@
           <h3>Use</h3>
           <ul>
             <li><a href="./plan.html">Planner</a></li>
-            <li><a href="./clock.html">The clock</a></li>
             <li><a href="#how">How it works</a></li>
           </ul>
         </div>

@@ -28,11 +28,11 @@
   <img src="docs/screenshots/landing.png" alt="Cadence landing page" width="100%">
 </a>
 
-Cadence is a day planner for people who want a plan they can actually follow. Paint the day into blocks on a 24-hour grid, attach the tasks that matter, then let the clock show only what is happening now. No account, no analytics, no server-side storage — the plan stays on your device.
+Cadence is a day planner for people who want a plan they can actually follow. Paint the day into blocks on a 24-hour grid, attach the tasks that matter, and see the whole day at a glance. No account, no analytics, no server-side storage — the plan stays on your device.
 
 ## The idea
 
-Most planners stop at a list. Cadence gives the day a shape: a 24-hour grid you paint in 30-minute blocks, with tasks attached to the date. The clock then runs the same plan, so there is only one version of what today is supposed to look like.
+Most planners stop at a list. Cadence gives the day a shape: a 24-hour grid you paint in 15-minute blocks, with tasks attached to the date. The grid is the plan, so there is only one version of what today is supposed to look like.
 
 The default palette is built for study days — school, coaching, self-study, revision, tests — but you can add your own activities for anything else.
 
@@ -44,29 +44,15 @@ The default palette is built for study days — school, coaching, self-study, re
 
 *The 24-hour planner: paint blocks, attach tasks, and see study, rest, sleep, and free time at a glance.*
 
-### Run the day
-
-<img src="docs/screenshots/clock.png" alt="Cadence focus clock showing the current block and pending tasks" width="100%">
-
-*The focus clock: one block, the time left, and the next thing waiting.*
-
 ## Features
 
 ### Plan
 
-- **Paint the day.** Drag across a 24-hour, 30-minute grid; every square you cross fills with the selected activity.
+- **Paint the day.** Drag across a 24-hour, 15-minute grid; every square you cross fills with the selected activity.
 - **Shape it by hand.** Move, stretch, or erase blocks, and undo or redo changes as you go.
 - **Keep the details.** Add tasks with stages, check them off, and see how the day breaks down into blocks, study, rest, sleep, free time, and tasks.
 - **Start from an existing timetable.** Import a timetable PDF and turn its sessions into blocks.
-- **Reuse a good day.** Copy a plan to another date, or save it to the timer.
-
-### Run
-
-- **One thing at a time.** The focus clock shows the current block, the time remaining, and the next block waiting.
-- **Stopwatch or countdown.** Use a free-running stopwatch or a focus timer with break presets.
-- **Make it automatic.** Chain focus and break sessions, or let the plan start each block on its own.
-- **Stay in the room.** Optional sounds, countdown ticks, wake lock, and notifications.
-- **See the work add up.** A daily focus goal and a session history.
+- **Reuse a good day.** Copy a plan to another date.
 
 ### Review
 
@@ -83,8 +69,8 @@ The default palette is built for study days — school, coaching, self-study, re
 ## How it works
 
 1. **Paint the day.** Open the planner, pick an activity, and drag across the grid.
-2. **Set the clock.** Start the timer from the planner, or open the clock and continue the current block.
-3. **Follow the day.** The clock shows one block at a time. When it ends, the next one is already waiting.
+2. **Add context.** Type a task, import a timetable PDF, or copy a previous day.
+3. **Keep the record.** Export JSON, download a PDF, or print the day when it is done.
 
 ## Tech stack
 
@@ -129,16 +115,13 @@ python -m http.server 8000
 
 1. **Plan.** Choose an activity, then drag across the grid to paint blocks. Select a block to move, resize, or delete it.
 2. **Add context.** Type a task, import a timetable PDF, or copy a previous day.
-3. **Run it.** Press **Start timer** on the planner, or open the clock and press **Continue Timetable**.
-4. **Review.** Export JSON, download a PDF, or print an A4 sheet at the end of the day.
+3. **Review.** Export JSON, download a PDF, or print an A4 sheet at the end of the day.
 
 ## Install it, then go offline
 
-<img align="right" src="docs/screenshots/mobile.png" width="260" alt="Cadence focus clock on a phone">
-
 Cadence is a progressive web app. Open it in a modern browser and use **Install app** (or **Add to Home Screen**). After the first load, the service worker keeps the app shell available offline; plans are already stored locally, so the app opens even without a network.
 
-The layout adapts to phones, tablets, and desktops. On smaller screens the clock stacks the timer and agenda, while the planner keeps its two-column day grid.
+The layout adapts to phones, tablets, and desktops. On smaller screens the planner keeps its two-column day grid and compresses the labels.
 
 Installation prompts depend on the browser and platform. Chrome and Edge support installation on desktop and Android; Safari on iOS uses **Add to Home Screen**.
 
@@ -146,10 +129,9 @@ Installation prompts depend on the browser and platform. Chrome and Edge support
 
 Cadence does not send your plans anywhere. There is no backend, no account, and no analytics.
 
-- Plans, tasks, sessions, and settings are stored under `cadence.store.v1` in `localStorage`.
+- Plans, tasks, and settings are stored under `cadence.store.v1` in `localStorage`.
 - Clearing site data or browser storage removes everything. Export a JSON backup first if the plan matters.
 - The only network requests are for the app's own static files.
-- Optional notifications and wake lock are browser features; they do not transmit data.
 
 ## Project structure
 
@@ -157,8 +139,6 @@ Cadence does not send your plans anywhere. There is no backend, no account, and 
 .
 ├── index.html               # Landing page and the four-act introduction
 ├── plan.html                # 24-hour planner
-├── clock.html               # Focus clock, timer, and stopwatch
-├── app.html                 # Small redirect to clock.html
 ├── sw.js                    # Service worker and offline cache
 ├── manifest.webmanifest     # PWA metadata
 ├── serve.py                 # Local static server (development only)
@@ -170,7 +150,6 @@ Cadence does not send your plans anywhere. There is no backend, no account, and 
 │   │   ├── store.js         # Versioned localStorage store
 │   │   ├── plan.js          # Plan model and grid operations
 │   │   ├── planpage.js      # Planner UI
-│   │   ├── clock.js         # Clock and timer UI
 │   │   ├── timetable.js     # Timetable parsing
 │   │   └── pdf.js           # PDF and print output
 │   └── vendor/              # jsPDF, html2canvas, Lenis
@@ -191,7 +170,7 @@ For another host, remove or update `CNAME` and point the host at the repository 
 
 ## Browser support
 
-Built for current evergreen browsers: Chrome, Edge, Firefox, and Safari. The core planner and clock work without a network; PWA installation, wake lock, and notifications depend on the browser and platform. The app respects `prefers-reduced-motion` and includes keyboard-accessible controls.
+Built for current evergreen browsers: Chrome, Edge, Firefox, and Safari. The planner works without a network; PWA installation depends on the browser and platform. The app respects `prefers-reduced-motion` and includes keyboard-accessible controls.
 
 ## Acknowledgements
 

@@ -4,20 +4,20 @@
  * A *plan* is what a day is supposed to look like: a list of blocks
  * ("Self study 10:00 – 12:30", "Lunch 12:30 – 13:00") and a list of tasks.
  *
- * The planner writes plans, the clock reads them. That is the whole idea of
- * this app: the same structure that paints the day is the structure the timer
- * runs, so there is only ever one truth about what today looks like.
+ * The planner writes plans and reads them back. That is the whole idea of
+ * this app: the same structure that paints the day is the structure that
+ * prints it, so there is only ever one truth about what today looks like.
  *
  * Blocks are stored in minutes past local midnight on the plan's own date.
- * The grid paints in 30-minute slots, so a block usually lands on a slot
+ * The grid paints in 15-minute slots, so a block usually lands on a slot
  * boundary — but the model does not insist on it, and an imported timetable
  * keeps its exact times.
  */
 
 import { uid, clockLabel } from './util.js';
 
-export const SLOT_MIN = 30;          // one grid slot = 30 minutes (like TestOnGo)
-export const SLOTS = 48;             // 24 hours × 2
+export const SLOT_MIN = 15;          // one grid slot = 15 minutes
+export const SLOTS = 96;             // 24 hours × 4
 export const DAY_MIN = 1440;
 
 const BREAK_RE = /\b(break|sleep|rest|lunch|meal|dinner|recess|nap|tea|free)\b/i;
@@ -337,8 +337,8 @@ export function sanitizePlan(raw, date) {
       : [];
     plan.imported = { label, subjects };
   }
-  // `done` remembers which blocks have already been dealt with, so the clock
-  // never runs the same block twice.
+  // `done` remembers which blocks have already been dealt with, so a block
+  // never gets counted twice.
   if (raw.done && typeof raw.done === 'object') {
     for (const [id, flag] of Object.entries(raw.done)) {
       if (typeof id === 'string' && flag) plan.done[id] = true;
@@ -421,7 +421,7 @@ export function blockRangeLabel(block) {
 }
 
 /**
- * Adjust a block's length by dragging its edges (snapped to 30-minute grid).
+ * Adjust a block's length by dragging its edges (snapped to 15-minute grid).
  */
 export function resizeBlock(blocks, blockId, direction, deltaMin) {
   if (!deltaMin) return blocks;

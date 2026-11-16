@@ -59,16 +59,7 @@
       <span class="brand__name">Cadence</span>
     </a>
 
-    <nav class="pagenav" aria-label="Pages">
-      <a class="pagenav__link" href="./clock.html">Clock</a>
-      <a class="pagenav__link" href="./plan.html" aria-current="page">Plan</a>
-    </nav>
-
     <div class="topbar__right">
-      <span class="runtime-chip" id="planRuntimeChip" hidden>
-        <span class="runtime-chip__dot"></span>
-        <span id="planRuntimeText">Timer running</span>
-      </span>
       <button class="icon-btn" id="planThemeBtn" type="button" aria-label="Toggle theme">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="4"/>
@@ -99,18 +90,6 @@
         </div>
 
         <div class="plan__primary-actions">
-          <button class="btn btn--glow btn--lg" id="planStart" type="button">
-            <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            Start timer
-          </button>
-          <button class="btn btn--soft btn--lg" id="planSaveTimer" type="button">
-            <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-              <polyline points="17 21 17 13 7 13 7 21"/>
-              <polyline points="7 3 7 8 15 8"/>
-            </svg>
-            Save to timer
-          </button>
           <button class="btn btn--primary btn--lg" id="planDownloadPdf" type="button">
             <svg class="btn__icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -206,22 +185,22 @@
               </div>
             </div>
             <div class="inspector__acts">
-              <button class="inspector-btn" type="button" data-act="earlier" title="Move 30 minutes earlier">
+              <button class="inspector-btn" type="button" data-act="earlier" title="Move 15 minutes earlier">
                 <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-                <span>30m</span>
+                <span>15m</span>
               </button>
-              <button class="inspector-btn" type="button" data-act="later" title="Move 30 minutes later">
-                <span>30m</span>
+              <button class="inspector-btn" type="button" data-act="later" title="Move 15 minutes later">
+                <span>15m</span>
                 <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
               </button>
               <div class="inspector__divider"></div>
-              <button class="inspector-btn" type="button" data-act="shorter" title="Shorten by 30 minutes">
+              <button class="inspector-btn" type="button" data-act="shorter" title="Shorten by 15 minutes">
                 <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
-                <span>30m</span>
+                <span>15m</span>
               </button>
-              <button class="inspector-btn" type="button" data-act="longer" title="Lengthen by 30 minutes">
+              <button class="inspector-btn" type="button" data-act="longer" title="Lengthen by 15 minutes">
                 <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                <span>30m</span>
+                <span>15m</span>
               </button>
               <div class="inspector__divider"></div>
               <button class="inspector-btn inspector-btn--danger" type="button" data-act="delete" title="Remove this block">

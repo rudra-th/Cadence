@@ -504,7 +504,7 @@
     const from = 6;
     const to = 24;
     const span = to - from;
-    const slotH = gridH / 48; // 30 min slots like planner
+    const slotH = gridH / 48; // 15 min slots like planner
     
     ctx.save();
     ctx.globalAlpha = alpha;

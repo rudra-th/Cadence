@@ -1,10 +1,8 @@
 /**
  * Cadence — the plan page controller.
  *
- * The plan page owns the day grid, the tasks, timetable import, saving a plan
- * to the timer, downloading a PDF, and handing the day over to the clock.
- * The clock page owns the timer itself. They talk through the shared runtime
- * and the store.
+ * The plan page owns the day grid, the tasks, timetable import, and
+ * downloading a PDF. Everything it shows lives in the shared store.
  *
  * The grid is a paint tool. Pick an activity, press on a square and drag:
  * every square the pointer crosses ends up holding that activity. The drag
@@ -12,7 +10,7 @@
  * your own work never leaves a seam behind.
  */
 
-import { load, saveNow, saveKeys, saveKeysNow, persistFailed, getPlan, setPlan, savePlanForTimer, storeErrorNotice, sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities, sanitizeSavedPlans } from './store.js';
+import { load, saveNow, saveKeys, saveKeysNow, persistFailed, getPlan, setPlan, storeErrorNotice, sanitizeSettings, sanitizeSessions, sanitizePlans, sanitizeActivities, sanitizeSavedPlans } from './store.js';
 import {
   SLOT_MIN, DAY_MIN, activityMap, toneOf, ACTIVITIES,
   paintRange, removeBlock, mergeBlocks, moveBlock, resizeBlockTo,
@@ -21,10 +19,9 @@ import {
 import { dateKey, shiftKey, labelDate, clockLabel, humanDuration, minutesOfDay, uid, clamp } from './util.js';
 import { importTimetable, importErrorMessage } from './timetable-import.js';
 import { buildPlanPrint } from './printplan.js';
-import { handOverToClock, runningSession } from './runtime.js';
 
-const HALF = 24;              // squares in one column (12 hours)
 const COL_MIN = 720;          // minutes in one column
+const HALF = COL_MIN / SLOT_MIN;   // squares in one column (12 hours)
 const COLS = 2;
 const LEAVE_MARGIN = 64;      // px outside the grid where a drag gives up
 
@@ -101,8 +98,6 @@ const el = {
   planTaskCount: $('planTaskCount'),
   planImport: $('planImport'),
   planImportFile: $('planImportFile'),
-  planStart: $('planStart'),
-  planSaveTimer: $('planSaveTimer'),
   planPrint: $('planPrint'),
   printDoc: $('printDoc'),
   planDownloadPdf: $('planDownloadPdf'),
@@ -125,8 +120,6 @@ const el = {
   askCancel: $('askCancel'),
   askClose: $('askClose'),
   planNow: $('planNow'),
-  planRuntimeChip: $('planRuntimeChip'),
-  planRuntimeText: $('planRuntimeText'),
   planThemeBtn: $('planThemeBtn'),
   toast: $('toast'),
   copyDialog: $('copyDialog'),
@@ -326,17 +319,6 @@ function brushActivity() {
     || { key: 'self_study', label: 'Self study', kind: 'study' };
 }
 
-function updateRuntimeChip() {
-  const rt = runningSession();
-  if (!el.planRuntimeChip) return;
-  if (rt) {
-    el.planRuntimeChip.hidden = false;
-    el.planRuntimeText.textContent = rt.status === 'paused' ? 'Timer paused' : 'Timer running';
-  } else {
-    el.planRuntimeChip.hidden = true;
-  }
-}
-
 /* ── history ──────────────────────────────────────────────── */
 
 /**
@@ -406,7 +388,7 @@ function redo() {
  */
 function commit() {
   // setPlan writes the plan key immediately and merges the rest of the store
-  // from the disk — a full-state write here would roll live timer sessions
+  // from the disk — a full-state write here would roll another tab's changes
   // back to the moment this tab was opened.
   setPlan(state, currentDate, current);
   if (persistFailed()) {
@@ -443,7 +425,6 @@ function render() {
   renderTasks();
   renderNow();
   updateGridHint();
-  updateRuntimeChip();
   renderPrintDoc();
 }
 
@@ -735,8 +716,8 @@ function buildGutters() {
         label.textContent = clockLabel(mins).replace(':00', '');
         label.classList.add('is-hour');
       } else {
-        label.textContent = ':30';
-        label.classList.add('is-half');
+        label.textContent = `:${String(mins % 60).padStart(2, '0')}`;
+        label.classList.add(mins % 30 === 0 ? 'is-half' : 'is-quarter');
       }
       gutter.appendChild(label);
     }
@@ -1023,13 +1004,9 @@ function renderNow() {
 
   if (!blocks().length) {
     bar.hidden = true;
-    // The button stays live even with an empty day — clicking it explains
-    // what to do next, which beats a silently dead primary action.
-    if (el.planStart) el.planStart.disabled = false;
     return;
   }
   bar.hidden = false;
-  if (el.planStart) el.planStart.disabled = false;
 
   const label = cur ? 'Now' : (isToday ? 'Next up' : 'Starts');
   const value = cur || next;
@@ -1642,7 +1619,6 @@ function bindEvents() {
     copyDay(btn.dataset.copyFrom);
   });
 
-  el.planStart?.addEventListener('click', () => continueTimetable(currentDate));
   el.planExport?.addEventListener('click', exportJson);
 
   // Importing a timetable: the button, and dropping a PDF anywhere.
@@ -1676,12 +1652,6 @@ function bindEvents() {
     dragDepth = 0;
     if (el.dropOverlay) el.dropOverlay.hidden = true;
     await runImport(e.dataTransfer.files[0]);
-  });
-
-  el.planSaveTimer?.addEventListener('click', () => {
-    if (!blocks().length) { showToast('Nothing to save'); return; }
-    savePlanForTimer(state, current, current.imported?.label || labelDate(currentDate, { weekday: 'long', month: 'long', day: 'numeric' }));
-    showToast('Saved to timer');
   });
 
   el.planPrint?.addEventListener('click', openPrintDialog);
@@ -1746,7 +1716,6 @@ function bindEvents() {
     }
   });
 
-  setInterval(updateRuntimeChip, 30000);
 }
 
 /* ── import, copy, hand over, export ──────────────────────── */
@@ -1960,9 +1929,9 @@ function copyDay(fromDate) {
   showToast('Plan copied');
 }
 
-/** Download the whole store as JSON — the same file the clock's Data tab
-    writes, so either page can re-import it. The landing page promises this
-    export next to the planner, so the planner owns it. */
+/** Download the whole store as JSON, so the planner can re-import it later.
+    The landing page promises this export next to the planner, so the planner
+    owns it. */
 function exportJson() {
   try {
     const payload = JSON.stringify({ exportedAt: new Date().toISOString(), ...state }, null, 2);
@@ -1981,24 +1950,6 @@ function exportJson() {
   }
 }
 
-function continueTimetable(date = dateKey(Date.now())) {
-  const p = date === currentDate ? current : getPlan(state, date);
-  if (!p.blocks.length) { showToast('Nothing planned yet — paint or import a day first'); return; }
-  const isToday = date === dateKey(Date.now());
-  const mins = minutesOfDay();
-  const { current: cur, next } = dayProgress(p.blocks, mins, isToday);
-  const block = cur || next;
-  if (!block) { showToast('That day is done — nothing left to run'); return; }
-  let remaining = (block.endMin - block.startMin) * 60000;
-  if (cur && isToday) {
-    const endTs = Date.now() - (mins * 60000) + (block.endMin * 60000);
-    remaining = Math.max(1000, endTs - Date.now());
-  }
-  const kind = block.kind === 'rest' ? 'break' : 'focus';
-  handOverToClock({ subject: block.label, sessionId: block.id, target: remaining, kind, date });
-  window.location.href = './clock.html';
-}
-
 /* ── go ───────────────────────────────────────────────────── */
 
 function init() {
@@ -2014,7 +1965,7 @@ function init() {
   bindEvents();
   render();
 
-  // Coming back to the page — from the clock, another tab or the background —
+  // Coming back to the page — from another tab or the background —
   // the store may have moved on. Re-read it, but never in the middle of a drag.
   const refresh = () => {
     if (drag) return;
@@ -2027,8 +1978,7 @@ function init() {
   });
   window.addEventListener('focus', refresh);
 
-  // Another tab moved the store (the plan page and the clock are meant to be
-  // open side by side) — follow it instead of stale-writing over it.
+  // Another tab moved the store — follow it instead of stale-writing over it.
   window.addEventListener('cadence:store-external', () => { if (!drag) refresh(); });
 
   // The store fell back to defaults somewhere — say so, the user has a backup

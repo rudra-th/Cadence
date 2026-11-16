@@ -1,10 +1,10 @@
 {
   "name": "Cadence — Plan the day, run the day",
   "short_name": "Cadence",
-  "description": "An offline-first study workspace. Paint your day onto a 24-hour grid and let the clock run it, block by block.",
-  "version": "1.5.0",
+  "description": "An offline-first day planner. Paint your day onto a 24-hour grid in 15-minute blocks.",
+  "version": "1.6.0",
   "id": "./",
-  "start_url": "./clock.html?source=pwa",
+  "start_url": "./plan.html?source=pwa",
   "scope": "./",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui", "browser"],
@@ -31,17 +31,10 @@
       "icons": [{ "src": "./assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
-      "name": "The clock",
-      "short_name": "Clock",
-      "description": "Open the stopwatch and timer",
-      "url": "./clock.html",
-      "icons": [{ "src": "./assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
-    },
-    {
-      "name": "25 minute focus",
-      "short_name": "25 min",
-      "description": "Start a 25 minute focus session",
-      "url": "./clock.html?mode=timer&dur=25",
+      "name": "Today",
+      "short_name": "Today",
+      "description": "Jump to today's plan",
+      "url": "./plan.html#planMain",
       "icons": [{ "src": "./assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     }
   ]

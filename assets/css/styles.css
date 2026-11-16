@@ -88,7 +88,7 @@
 
   --ring-c: 741.42;
 
-  /* One slot of the day grid — half an hour tall. */
+  /* One slot of the day grid — fifteen minutes tall. */
   --slot-h: 10px;
 
   --font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -145,7 +145,7 @@ svg { display: block; }
 
 /* ── Skip link ───────────────────────────────────────────── */
 /* Lives in styles.css rather than the landing theme so every page of the
-   app shares it (index.html, plan.html, clock.html all use class="skip").
+   app shares it (index.html and plan.html use class="skip").
    Translated off-screen instead of display:none — a hidden skip link that
    can't be tabbed to is not a skip link. */
 .skip {
@@ -1716,30 +1716,6 @@ body[data-reduce-motion="true"] .dial[data-running="true"]::before { animation: 
   gap: 10px;
 }
 
-.runtime-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 12px;
-  border-radius: var(--r-pill);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
-.runtime-chip__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text);
-  box-shadow: 0 0 12px rgba(255, 255, 255, 0.6);
-  animation: pulse 2s ease-in-out infinite;
-}
-
 /* ═══════════════════════════════════════════════════════════
    Cadence — plan page colours
    ═══════════════════════════════════════════════════════════ */
@@ -1750,7 +1726,7 @@ body.planpage {
   --plan-life:  #E9B667;
   --plan-accent: #FFFFFF;
 
-  /* One square of the day — 30 minutes. */
+  /* One square of the day — 15 minutes. */
   --slot-h: 14px;
 }
 
@@ -2274,7 +2250,7 @@ body.planpage {
   width: 38px;
   flex: none;
   display: grid;
-  grid-template-rows: repeat(24, var(--slot-h));
+  grid-template-rows: repeat(48, var(--slot-h));
   padding-top: 2px;
 }
 .grid__hour {
@@ -2288,17 +2264,18 @@ body.planpage {
 }
 .grid__hour.is-hour { color: var(--text-faint); }
 .grid__hour.is-half { color: var(--text-faint); opacity: 0.4; }
+.grid__hour.is-quarter { color: var(--text-faint); opacity: 0.2; }
 
 .grid__track {
   position: relative;
   flex: 1;
   min-width: 0;
-  height: calc(var(--slot-h) * 24);
+  height: calc(var(--slot-h) * 48);
   border-radius: 10px;
   border: 1px solid var(--line);
   background-color: var(--bg-2);
   background-image:
-    repeating-linear-gradient(to bottom, transparent 0 calc(var(--slot-h) * 2 - 1px), rgba(255, 255, 255, 0.03) calc(var(--slot-h) * 2 - 1px) calc(var(--slot-h) * 2));
+    repeating-linear-gradient(to bottom, transparent 0 calc(var(--slot-h) * 4 - 1px), rgba(255, 255, 255, 0.03) calc(var(--slot-h) * 4 - 1px) calc(var(--slot-h) * 4));
   background-position: 0 0;
   touch-action: none;
   cursor: crosshair;
@@ -3376,7 +3353,7 @@ body.landing { background: var(--bg); }
   /* One clear primary, two quiet secondaries. */
   .plan__primary-actions {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 6px;
     width: 100%;
   }
@@ -3388,7 +3365,6 @@ body.landing { background: var(--bg); }
     border-radius: 10px;
   }
   .plan__primary-actions .btn__icon { width: 14px; height: 14px; }
-  #planStart { grid-column: 1 / -1; height: 42px; font-size: 13px; }
 
   /* ── the week ──────────────────────────────────────────── */
   .weekrow { gap: 5px; }
@@ -3520,7 +3496,7 @@ body.landing { background: var(--bg); }
   .grid__body { gap: 5px; }
   .grid__gutter { width: 21px; }
   .grid__hour { font-size: 7.5px; letter-spacing: -0.02em; }
-  .grid__hour.is-half { color: transparent; }
+  .grid__hour.is-quarter { color: transparent; }
   .grid__colheader { margin-bottom: 5px; padding-bottom: 4px; }
   .grid__coltitle { font-size: 8px; letter-spacing: 0.02em; }
   .grid__colrange { display: none; }

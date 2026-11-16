@@ -558,50 +558,6 @@ export function recentSessions(state, limit = 60) {
   return state.sessions.slice().sort((a, b) => b.start - a.start).slice(0, limit);
 }
 
-/* ── plans saved for the timer ────────────────────────────── */
-
-/**
- * Save a plan for the clock.
- *
- * This is what “Save to timer” does on the plan page: it takes the day that
- * is on screen and parks a copy of it in the store, so the clock's settings
- * menu can offer it later — to run, or to copy back onto a day.
- */
-export function savePlanForTimer(state, plan, label = '') {
-  if (!plan || !Array.isArray(plan.blocks) || !plan.blocks.length) return null;
-  const date = plan.date || dateKey(Date.now());
-  const existing = state.saved.find(s => s.date === date);
-  const clean = sanitizePlan({ ...plan, date }, date);
-  const record = {
-    id: existing ? existing.id : uid('sp'),
-    date,
-    label: String(label || plan.imported?.label || '').slice(0, 80),
-    savedAt: Date.now(),
-    blocks: clean.blocks,
-    tasks: clean.tasks,
-    imported: clean.imported,
-  };
-  if (existing) {
-    state.saved = state.saved.map(s => (s.id === existing.id ? record : s));
-  } else {
-    state.saved.push(record);
-  }
-  // Keep the list short — the newest twelve are the ones that matter.
-  state.saved = state.saved.slice(-12);
-  saveKeysNow(state, ['saved']);
-  return record;
-}
-
-export function removeSavedPlan(state, id) {
-  const before = state.saved.length;
-  state.saved = state.saved.filter(s => s.id !== id);
-  if (state.saved.length !== before) saveKeysNow(state, ['saved']);
-}
-
-export function getSavedPlan(state, id) {
-  return state.saved.find(s => s.id === id) || null;
-}
-
 /* ── derived stats ───────────────────────────────────────── */
 
 export function computeStats(state) {
@@ -668,22 +624,19 @@ export function computeStats(state) {
 
 /**
  * Two tabs share one store key, and a write in one is invisible to the
- * other — the clock here, the plan there. The `storage` event fires in
- * every tab except the one that wrote, so this listens for it and hands
- * out `cadence:store-external`.
+ * other. The `storage` event fires in every tab except the one that wrote,
+ * so this listens for it and hands out `cadence:store-external`.
  *
  * The store itself holds no state — every function takes the page's
- * `state` object as an argument, and each page keeps its own (`let state
- * = load()` at the top of clock.js and planpage.js). So this can only
- * announce the change: a page that hears the event must reassign its own
- * reference (`state = load()`) and re-render. Nothing else sees the new
- * data, and mutating the old object would not be enough — load() builds a
- * fresh one.
+ * `state` object as an argument, and the page keeps its own (`let state =
+ * load()` at the top of planpage.js). So this can only announce the change:
+ * a page that hears the event must reassign its own reference (`state =
+ * load()`) and re-render. Nothing else sees the new data, and mutating the
+ * old object would not be enough — load() builds a fresh one.
  *
- * Only the store key counts here. The live-session handoff key
- * (`cadence.runtime.v1`) is watched by runtime.js on its own, and the
- * quarantine copy (`cadence.store.v1.bad`) is written by this very module
- * — neither should make pages reload and re-render.
+ * Only the store key counts here. The quarantine copy
+ * (`cadence.store.v1.bad`) is written by this very module and should not
+ * make pages reload and re-render.
  */
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
